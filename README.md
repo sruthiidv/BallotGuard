@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # BallotGuard Voting System
 
 ## Overview
@@ -41,3 +42,13 @@ BallotGuard is a modular digital voting system with a modern CustomTkinter UI, f
 ---
 
 **For development or deployment, just use `python client_app/voting/app.py` to launch the UI.**
+=======
+Face-Verified Blockchain-Inspired Secure Voting System
+Functionalities
+•	Voter Registration – Capture and store voter face data securely.
+•	Face Authentication – Verify voter before unlocking voting screen.
+•	Vote Casting – Candidate selection via Tkinter GUI.
+•	Cryptographic Security – Digital signature, homomorphic encryption, and hashing of votes.
+•	Blockchain Audit Trail – Append vote hash to blockchain ledger for tamper-proofing.
+•	Admin Panel – Verify signatures, tally votes using homomorphic addition, decrypt only the final total.
+>>>>>>> bbc10a79e9e59639587a69e373af4a6afe1b3d84
