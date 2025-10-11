@@ -78,31 +78,47 @@ Includes Merkle tree for verifying individual vote inclusion.
 Key	Location	Purpose
 PK_paillier	Client + Server	Encrypt votes
 SK_paillier	Server only	Decrypt tallies
-SK_server_sign	Server only	Sign OVTs
-PK_server_sign	Client	Verify OVTs
-SK_ledger_sign	Server only	Sign blockchain blocks
-PK_ledger_sign	Public (auditors)	Verify ledger
-📦 Dependencies
 
-Add these in your requirements.txt:
+# BallotGuard Voting System
 
-cryptography==43.0.0
-phe==1.5.0
+## Overview
+BallotGuard is a modular digital voting system with a modern CustomTkinter UI, face verification, and cryptographic vote handling. This project is structured for easy development and extension.
 
+## Prerequisites
+- Python 3.10+
+- All dependencies in `requirements.txt`
 
-Optional (for integration with Flask server):
+## Installation
+1. Clone the repository:
+   ```sh
+   git clone <your-repo-url>
+   cd BallotGuard
+   ```
+2. Install dependencies:
+   ```sh
+   pip install -r requirements.txt
+   ```
 
-Flask==3.0.3
-Flask-Cors==4.0.0
-SQLAlchemy==2.0.32
-psycopg2-binary==2.9.9
+## Running the Application
+1. Start the server (in a new terminal):
+   ```sh
+   python simple_server.py
+   ```
+2. Start the client app:
+   ```sh
+   python client_app/voting/app.py
+   ```
 
-🔄 Vote Flow Summary
+## Usage
+- On launch, select your role (Voter, Admin, Auditor).
+- Voters can register, verify face, and vote in open elections.
+- Admin and Auditor features are placeholders for future development.
 
-Server generates keys and distributes public keys.
+## Notes
+- No `setup.py` is required unless you want to distribute as a pip package. For running as an app, just use the above commands.
+- All local/temporary files, caches, and environments are ignored via `.gitignore`.
+- Face verification is currently mocked on the server for demo purposes.
 
-Client verifies OVT → encrypts vote → submits to server.
+---
 
-Server verifies OVT → stores encrypted vote → appends hash to blockchain.
-
-At tally time, server decrypts all encrypted votes using Paillier private key and publishes signed results.
+**For development or deployment, just use `python client_app/voting/app.py` to launch the UI.**
