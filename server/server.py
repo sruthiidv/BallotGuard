@@ -19,18 +19,14 @@ from Crypto.Hash import SHA256
 from server.server_config import RECEIPT_RSA_PRIV_PEM, RECEIPT_RSA_PUB_PEM, PAILLIER_N, PAILLIER_P, PAILLIER_Q
 
 app = Flask(__name__)
-from client_app.crypto.vote_crypto import prepare_vote_data, generate_vote_id
-from server_backend.crypto.ovt import generate_ovt, sign_ovt
-from server_backend.crypto.ledger_crypto import create_block_header, sign_block_header
-from client_app.storage.localdb import (
-    init as db_init, store_ovt, is_ovt_used,
-    store_vote, store_receipt, mark_ovt_used, fetch_last_receipt
-)
-from server_backend.crypto.sha_utils import compute_sha256_hex
 
-DB_PATH = "client_local.db"
-db_init(DB_PATH)  # Initialize local DB
-print("✅ Local DB initialized.")
+RSA_SK = RSA.import_key(RECEIPT_RSA_PRIV_PEM)
+RSA_PUB_PEM = RECEIPT_RSA_PUB_PEM  # returned to clients for verification
+
+@app.route('/public-key', methods=['GET'])
+def get_public_key():
+    return jsonify({"rsa_pub_pem": RSA_PUB_PEM})
+
 # Simple in-memory storage - matching MVP Architecture
 ELECTIONS = [
     {
@@ -219,63 +215,203 @@ def verify_face():
 
 @app.route('/ovt/issue', methods=['POST'])
 def issue_ovt():
+    """Issue OVT token - MVP Architecture endpoint"""
     try:
         data = request.json
         voter_id = data.get("voter_id")
         election_id = data.get("election_id")
-
+        
+        # Validate voter and election eligibility
         ves_key = (election_id, voter_id)
         if ves_key not in VOTER_ELECTION_STATUS:
-            return jsonify({"error": {"code": "NOT_ELIGIBLE", "message": "Not eligible"}}), 403
+            return jsonify({
+                "error": {
+                    "code": "NOT_ELIGIBLE",
+                    "message": "Not eligible for this election"
+                }
+            }), 403
+            
+        ves = VOTER_ELECTION_STATUS[ves_key]
+        if ves["voted_flag"]:
+            return jsonify({
+                "error": {
+                    "code": "ALREADY_VOTED", 
+                    "message": "Already voted in this election"
+                }
+            }), 409
+        
+        # Revoke any existing unspent OVTs for this voter/election
+        for ovt_uuid, ovt in OVT_TOKENS.items():
+            if (ovt["voter_id"] == voter_id and 
+                ovt["election_id"] == election_id and 
+                ovt["status"] == "issued"):
+                ovt["status"] = "expired"
+        
+        # Generate new OVT
+        ovt_uuid = str(uuid.uuid4())
+        expires_at = time.time() + 300  # 5 minutes TTL
+        
+        ovt = {
+            "ovt_uuid": ovt_uuid,
+            "election_id": election_id,
+            "voter_id": voter_id,
+            "not_before": time.time(),
+            "expires_at": expires_at
+        }
+        
+        # Store OVT
+        OVT_TOKENS[ovt_uuid] = {
+            "ovt_uuid": ovt_uuid,
+            "election_id": election_id,
+            "voter_id": voter_id,
+            "status": "issued",
+            "expires_at": expires_at,
+            "issued_ts": time.time()
+        }
+        
+        # Real RSA-PSS signature of the canonical OVT JSON
+        ovt_bytes = json.dumps(ovt, sort_keys=True, separators=(",", ":")).encode()
+        h = SHA256.new(ovt_bytes)
+        sig = pss.new(RSA_SK).sign(h)
+        server_sig = base64.b64encode(sig).decode()
 
-        # Generate OVT and signature
-        ovt_bytes = generate_ovt()
-        server_sig_bytes = sign_ovt(ovt_bytes)
-        ovt_token_str = ovt_bytes.hex()
-        server_sig_str = server_sig_bytes.hex()
-
-        # Store in DB
-        store_ovt(ovt_token_str, election_id, DB_PATH)
-
-        return jsonify({"ovt": {"token": ovt_token_str, "signature": server_sig_str}})
-
+        return jsonify({
+            "ovt": ovt,
+            "server_sig": server_sig  # client already knows RSA_PUB_PEM
+        })
+        
     except Exception as e:
-        return jsonify({"error": {"code": "OVT_ISSUE_FAILED", "message": str(e)}}), 500
+        return jsonify({
+            "error": {
+                "code": "OVT_ISSUE_FAILED",
+                "message": str(e)
+            }
+        }), 500
 
-
+# Votes endpoint (Booth)
 @app.route('/votes', methods=['POST'])
 def cast_vote():
+    """Cast a vote - MVP Architecture endpoint"""
     try:
         data = request.json
         vote_id = data.get("vote_id")
         election_id = data.get("election_id")
         candidate_id = data.get("candidate_id")
+        ciphertext = data.get("ciphertext", "mock_encrypted_vote")
+        client_hash = data.get("client_hash")
         ovt = data.get("ovt", {})
-        ovt_token_str = ovt.get("token")
+        ovt_uuid = ovt.get("ovt_uuid") if ovt else None
+        
+        # Validate OVT
+        if not ovt_uuid or ovt_uuid not in OVT_TOKENS:
+            return jsonify({"error": {"code": "OVT_NOT_FOUND","message": "Invalid or missing OVT"}}), 400
 
-        if not ovt_token_str:
-            return jsonify({"error": "OVT missing"}), 400
+        ovt_token = OVT_TOKENS[ovt_uuid]
+        if ovt_token["status"] != "issued":
+            return jsonify({"error": {"code": "OVT_SPENT","message": "OVT already used"}}), 409
 
-        if is_ovt_used(ovt_token_str, DB_PATH):
-            return jsonify({"error": "OVT already used"}), 409
+        if ovt_token["expires_at"] < time.time():
+            return jsonify({"error": {"code": "OVT_EXPIRED", "message": "OVT expired"}}), 403
 
-        vote_id = vote_id or generate_vote_id()
-        vote_data = prepare_vote_data(vote_id, election_id, candidate_id, ovt)
-        ciphertext = str(vote_data)
-        client_hash = compute_sha256_hex(ciphertext)
+        if ovt_token["election_id"] != election_id:
+            return jsonify({"error": {"code": "OVT_ELECTION_MISMATCH","message": "OVT not issued for this election"}}), 403
 
-        last_index, last_hash = fetch_last_receipt(election_id, DB_PATH)
-        block_header = create_block_header(last_index + 1, client_hash, last_hash)
-        block_signature = sign_block_header(block_header)
+        voter_id = ovt_token["voter_id"]
 
-        store_vote(vote_id, election_id, ciphertext, ovt_token_str, DB_PATH)
-        store_receipt(vote_id, election_id, block_header["index"], client_hash, block_signature.hex(), DB_PATH)
-        mark_ovt_used(ovt_token_str, DB_PATH)
+        # Check if already voted
+        ves_key = (election_id, voter_id)
+        if ves_key in VOTER_ELECTION_STATUS:
+            ves = VOTER_ELECTION_STATUS[ves_key]
+            if ves["voted_flag"]:
+                return jsonify({"error": {"code": "ALREADY_VOTED","message": "Already voted in this election"}}), 409
 
-        return jsonify({"ledger_index": block_header["index"], "block_hash": block_signature.hex(), "ack": "stored"})
+        # Check for duplicate vote_id (idempotency)
+        if vote_id in ENCRYPTED_VOTES:
+            # Return same response for idempotent replay
+            existing_vote = ENCRYPTED_VOTES[vote_id]
+            return jsonify({
+                "ledger_index": existing_vote["ledger_index"],
+                "block_hash": existing_vote.get("block_hash", "mock_hash"),
+                "ack": "stored"
+            })
 
+        # Get election salt for vote_hash
+        election_salt = "default_salt"
+        for election in ELECTIONS:
+            if election["election_id"] == election_id:
+                election_salt = election.get("election_salt", "default_salt")
+                break
+
+        # Compute vote_hash (MVP Architecture)
+        vote_hash = hashlib.sha256(f"{ciphertext}{election_salt}".encode()).hexdigest()
+
+        # Get next ledger index
+        ledger_index = LEDGER_INDICES[election_id]
+        LEDGER_INDICES[election_id] += 1
+
+        # Compute block hash
+        prev_hash = "GENESIS" if ledger_index == 0 else LEDGER_BLOCKS[(election_id, ledger_index-1)]["hash"]
+        block_data = f"{ledger_index}{election_id}{vote_hash}{prev_hash}"
+        block_hash = hashlib.sha256(block_data.encode()).hexdigest()
+
+        # Store encrypted vote
+        ENCRYPTED_VOTES[vote_id] = {
+            "vote_id": vote_id,
+            "election_id": election_id,
+            "ciphertext": ciphertext,
+            "client_hash": client_hash,
+            "ledger_index": ledger_index,
+            "ts": time.time(),
+            "block_hash": block_hash
+        }
+
+        # Store ledger block
+        block_key = (election_id, ledger_index)
+        LEDGER_BLOCKS[block_key] = {
+            "index": ledger_index,
+            "election_id": election_id,
+            "vote_hash": vote_hash,
+            "prev_hash": prev_hash,
+            "hash": block_hash,
+            "ts": time.time()
+        }
+
+        # Mark OVT as spent
+        ovt_token["status"] = "spent"
+
+        # Mark voter as having voted
+        if ves_key in VOTER_ELECTION_STATUS:
+            VOTER_ELECTION_STATUS[ves_key]["voted_flag"] = True
+
+        # Return an RSA-PSS signed receipt
+        receipt_payload = {
+            "vote_id": vote_id,
+            "election_id": election_id,
+            "ledger_index": ledger_index,
+            "block_hash": block_hash
+        }
+        h = SHA256.new(json.dumps(receipt_payload, sort_keys=True, separators=(",", ":")).encode())
+        sig = pss.new(RSA_SK).sign(h)
+        receipt_sig = base64.b64encode(sig).decode()
+
+        print(f"DEBUG: Vote stored and signed receipt ready. vote_id={vote_id}, ledger_index={ledger_index}")
+
+        return jsonify({
+            "ledger_index": ledger_index,
+            "block_hash": block_hash,
+            "receipt": {
+                **receipt_payload,
+                "sig": receipt_sig
+            }
+        })
+        
     except Exception as e:
-        return jsonify({"error": {"code": "VOTE_FAILED", "message": str(e)}}), 500
+        return jsonify({
+            "error": {
+                "code": "VOTE_FAILED",
+                "message": str(e)
+            }
+        }), 500
 
 @app.route('/health', methods=['GET'])
 def health_check():

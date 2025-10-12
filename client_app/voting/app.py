@@ -17,11 +17,10 @@ from client_app.storage.localdb import init
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
 # Import client_app modules
-from auth.face_verify import capture_face_photo, detect_faces, draw_face_rectangles, capture_face_encoding
-from auth.encode import bgr_to_jpeg_base64
+from auth.face_verify import capture_face_photo, detect_faces, draw_face_rectangles, capture_face_encoding, bgr_to_jpeg_base64
 from crypto.vote_crypto import prepare_vote_data, generate_vote_id, verify_vote_receipt
 from api_client import BallotGuardAPI
-from config import SERVER_BASE
+from client_app.client_config import SERVER_BASE
 
 # --- Initialize the database ---
 init()
@@ -178,15 +177,6 @@ class MainMenuFrame(ctk.CTkFrame):
         )
         admin_btn.pack(pady=8)
 
-        auditor_btn = ctk.CTkButton(
-            button_frame,
-            text="🔍 Auditor",
-            font=ctk.CTkFont(size=16),
-            width=button_width,
-            height=button_height,
-            command=self.select_auditor_role
-        )
-        auditor_btn.pack(pady=8)
     
     def select_voter_role(self):
         self.parent.user_data["role"] = "voter"
@@ -668,50 +658,36 @@ class RegistrationFrame(ctk.CTkFrame):
             self.election_label.configure(text=f"Registering for: {election.get('name', 'Unknown Election')}")
     
     def capture_photo(self):
-        """Capture photo using auth module"""
+        """Capture face using updated face_verify.py logic (OpenCV live detection, rectangle drawing, and encoding)."""
         try:
             self.status_label.configure(text="📹 Opening camera. Position your face in the frame and press SPACE to capture, ESC to cancel", text_color="blue")
-            
-            # Show instructions popup
-            messagebox.showinfo("Camera Instructions", 
-                              "Camera will open in a new window.\n\n" +
-                              "Instructions:\n" +
-                              "• Position your face clearly in the frame\n" +
-                              "• Wait for green rectangle around your face\n" +
-                              "• Press SPACE key to capture photo\n" +
-                              "• Press ESC key to cancel\n\n" +
-                              "Click OK to continue...")
-            
-            # Use the auth module for face capture
+            messagebox.showinfo(
+                "Camera Instructions",
+                "Camera will open in a new window.\n\n"
+                "Instructions:\n"
+                "• Position your face clearly in the frame\n"
+                "• Wait for green rectangle around your face\n"
+                "• Press SPACE key to capture photo\n"
+                "• Press ESC key to cancel\n\n"
+                "Click OK to continue..."
+            )
+            # Use the updated face_verify.py capture_face_photo()
             result, error = capture_face_photo()
-            
             if result:
                 self.parent.user_data["face_data"] = result["face_data"]
                 self.parent.user_data["face_encoding"] = result["face_encoding"]
-                
-                # Convert base64 back to display in UI
+                # Display the captured photo
                 img_data = base64.b64decode(result["face_data"])
                 pil_image = Image.open(io.BytesIO(img_data))
-                
-                # Resize for display
                 display_size = (250, 188)
                 pil_image = pil_image.resize(display_size, Image.Resampling.LANCZOS)
-                
-                # Create CTkImage for proper scaling
                 ctk_image = ctk.CTkImage(light_image=pil_image, dark_image=pil_image, size=display_size)
-                
-                self.photo_display.configure(
-                    image=ctk_image,
-                    text=""
-                )
-                
+                self.photo_display.configure(image=ctk_image, text="")
                 self.status_label.configure(text="✅ Photo captured successfully! Face encoding extracted.", text_color="green")
-                self.capture_btn.configure(text="📷 Recapture Photo")  # Allow user to recapture
+                self.capture_btn.configure(text="📷 Recapture Photo")
                 self.submit_btn.configure(state="normal")
-            
             else:
                 self.status_label.configure(text=f"❌ {error}", text_color="red")
-                
         except Exception as e:
             messagebox.showerror("Error", f"Camera error: {str(e)}")
             self.status_label.configure(text=f"❌ Camera error: {str(e)}", text_color="red")
@@ -733,10 +709,9 @@ class RegistrationFrame(ctk.CTkFrame):
             self.submit_btn.configure(state="disabled", text="Submitting...")
             
             # Prepare registration data for MVP Architecture
-            face_template = self.parent.user_data.get("face_encoding")
-            
+            face_encoding = self.parent.user_data.get("face_encoding")
             # Send to server using API client
-            result, error = api_client.enroll_voter(face_template)
+            result, error = api_client.enroll_voter(face_encoding)
             
             if result:
                 voter_id = result.get("voter_id")
@@ -931,40 +906,29 @@ class FaceVerificationFrame(ctk.CTkFrame):
             self.voter_id_entry.insert(0, saved_voter_id)
     
     def verify_face(self):
-        """Verify face against stored template"""
+        """Perform direct OpenCV verification with live detection, rectangle drawing, and camera capture loop."""
         voter_id = self.voter_id_entry.get().strip()
-        
         if not voter_id:
             messagebox.showerror("Error", "Please enter your Voter ID")
             return
-        
         self.verify_status.configure(text="Opening camera for verification...", text_color="blue")
-        
         try:
-            # Use auth module for face detection and capture
             messagebox.showinfo("Camera", "Camera will open. Position your face and press SPACE to verify, ESC to cancel")
-            
-            # For verification, we can use the simple camera capture from auth module
             cap = cv2.VideoCapture(0)
             if not cap.isOpened():
                 messagebox.showerror("Error", "Could not open camera")
                 self.verify_status.configure(text="❌ Camera error", text_color="red")
                 return
-            
             captured_frame = None
             while True:
                 ret, frame = cap.read()
                 if not ret:
                     break
-                
-                # Use auth module functions for face detection
                 face_locations = detect_faces(frame)
                 display_frame = draw_face_rectangles(frame, face_locations)
-                
                 cv2.imshow("Face Verification - Press SPACE to verify, ESC to cancel", display_frame)
                 key = cv2.waitKey(1) & 0xFF
-                
-                if key == ord(' '):  # Space to capture
+                if key == ord(' '):
                     if len(face_locations) == 1:
                         captured_frame = frame.copy()
                         break
@@ -972,34 +936,32 @@ class FaceVerificationFrame(ctk.CTkFrame):
                         self.verify_status.configure(text="❌ No face detected. Please position your face in camera.", text_color="red")
                     else:
                         self.verify_status.configure(text="❌ Multiple faces detected. Please ensure only one person.", text_color="red")
-                elif key == 27:  # ESC to cancel
+                elif key == 27:
                     break
-            
             cap.release()
             cv2.destroyAllWindows()
-            
             if captured_frame is None:
                 self.verify_status.configure(text="Verification cancelled", text_color="gray")
                 return
-            
+            # Extract face encoding from captured frame
+            encoding = capture_face_encoding(captured_frame)
+            if encoding is None:
+                self.verify_status.configure(text="❌ Could not extract face encoding.", text_color="red")
+                return
             # Send verification request to server using API client
             election_id = self.parent.user_data.get("selected_election", {}).get("election_id")
-            
-            result, error = api_client.verify_face(voter_id, election_id)
-            
+            # Pass voter_id, election_id, and encoding as BallotGuardAPI.verify_face expects 3 args
+            result, error = api_client.verify_face(voter_id, election_id, encoding)
             if result:
                 if result.get("pass"):
                     self.verify_status.configure(text="✅ Face verified successfully! You can proceed to vote.", text_color="green")
                     self.proceed_btn.configure(state="normal")
                     self.parent.user_data["verified_voter_id"] = voter_id
-                    
-                    # Save voter ID for future use
                     self.parent.user_data["voter_id"] = voter_id
                 else:
                     self.verify_status.configure(text="❌ Face verification failed", text_color="red")
             else:
                 self.verify_status.configure(text=f"❌ {error}", text_color="red")
-            
         except Exception as e:
             messagebox.showerror("Error", f"Verification error: {str(e)}")
             self.verify_status.configure(text=f"❌ Error: {str(e)}", text_color="red")
@@ -1114,83 +1076,96 @@ class VotingInterfaceFrame(ctk.CTkFrame):
         
         # Create radio button variable
         self.candidate_var = tk.StringVar()
-        
-        # Create candidate options
-        for candidate in candidates:
+        self.candidate_id_map = {}  # index -> candidate_id
+        # Create candidate options with index as value
+        for idx, candidate in enumerate(candidates):
             candidate_frame = ctk.CTkFrame(self.candidates_frame)
             candidate_frame.pack(pady=5, padx=10, fill="x")
-            
+            self.candidate_id_map[str(idx)] = candidate.get('candidate_id', '')
             radio_btn = ctk.CTkRadioButton(
                 candidate_frame,
                 text=f"{candidate.get('name', 'Unknown')} ({candidate.get('party', 'Independent')})",
                 variable=self.candidate_var,
-                value=candidate.get('candidate_id', ''),
+                value=str(idx),
                 command=self.on_candidate_selected
             )
             radio_btn.pack(pady=10, anchor="w")
     
     def on_candidate_selected(self):
         """Enable vote button when candidate is selected"""
-        self.selected_candidate = self.candidate_var.get()
+        self.selected_candidate_index = self.candidate_var.get()
         self.vote_btn.configure(state="normal")
     
     def submit_vote(self):
-        """Submit the vote to server"""
-        if not self.selected_candidate:
+        """Submit the vote to server with Paillier encryption, server receipt, and RSA signature verification."""
+        if not hasattr(self, 'selected_candidate_index') or not self.selected_candidate_index:
             messagebox.showerror("Error", "Please select a candidate")
             return
-        
-        # Get candidate name for confirmation
         election = self.parent.user_data.get("selected_election", {})
         candidates = election.get("candidates", [])
-        candidate_name = "Unknown"
-        for candidate in candidates:
-            if candidate.get("candidate_id") == self.selected_candidate:
-                candidate_name = candidate.get("name", "Unknown")
-                break
-        
-        # Confirm vote
+        idx = int(self.selected_candidate_index)
+        candidate_id = self.candidate_id_map[self.selected_candidate_index]
+        candidate_name = candidates[idx].get("name", "Unknown")
         confirm = messagebox.askyesno(
             "Confirm Vote",
             f"Are you sure you want to vote for:\n\n{candidate_name}\n\nIn: {election.get('name', 'this election')}\n\nThis action cannot be undone."
         )
-        
         if confirm:
             try:
                 self.vote_btn.configure(state="disabled", text="Submitting Vote...")
-                
-                # Generate unique vote ID and prepare encrypted vote data using crypto module
                 vote_id = generate_vote_id()
                 election_id = election.get("election_id")
                 ovt = self.parent.user_data.get("ovt", {})
-                
-                # Prepare vote data using crypto module
-                vote_data = prepare_vote_data(
-                    vote_id=vote_id,
-                    election_id=election_id,
-                    candidate_id=self.selected_candidate,
-                    ovt=ovt
-                )
-                
-                # Send to server using API client
+                # --- Paillier vote encryption ---
+                from client_app.crypto.paillier import paillier_encrypt
+                from client_app.client_config import PAILLIER_N
+                from phe import paillier
+                paillier_pubkey = paillier.PaillierPublicKey(PAILLIER_N)
+                encrypted_vote_obj = paillier_encrypt(paillier_pubkey, idx)
+                # Serialize EncryptedNumber for JSON
+                encrypted_vote = {
+                    "ciphertext": str(encrypted_vote_obj.ciphertext()),
+                    "exponent": encrypted_vote_obj.exponent,
+                }
+                # --- Prepare vote data ---
+                vote_data = {
+                    "vote_id": vote_id,
+                    "election_id": election_id,
+                    "candidate_id": candidate_id,
+                    "encrypted_vote": encrypted_vote,
+                    "ovt": ovt,
+                }
+                # --- Send to server ---
                 result, error = api_client.cast_vote(vote_data)
-                
                 if result:
+                    # --- Server receipt and RSA signature verification ---
+                    from client_app.crypto.signing import verify_rsa_signature
+                    from client_app.client_config import RSA_PUB_PEM
+                    import base64
+                    server_sig = result.get("server_sig")
+                    receipt = result.get("receipt")
+                    # Only verify the canonical payload fields, not the whole receipt
+                    payload = {
+                        "vote_id": receipt["vote_id"],
+                        "election_id": receipt["election_id"],
+                        "ledger_index": receipt["ledger_index"],
+                        "block_hash": receipt["block_hash"]
+                    }
+                    rsa_pub_pem_b64 = base64.b64encode(RSA_PUB_PEM.encode()).decode()
+                    if not verify_rsa_signature(payload, receipt["sig"], rsa_pub_pem_b64):
+                        messagebox.showerror("Vote Failed", "Server signature verification failed!")
+                        self.vote_btn.configure(state="normal", text="Submit Vote")
+                        return
                     ledger_index = result.get("ledger_index")
                     block_hash = result.get("block_hash")
-                    
-                    # Mark this election as voted
                     voter_id = self.parent.user_data.get("verified_voter_id")
                     if voter_id and election_id:
                         voted_key = f"{election_id}_{voter_id}"
                         self.parent.user_data["voted_elections"].add(voted_key)
-                    
                     messagebox.showinfo(
                         "Vote Submitted Successfully",
                         f"Your vote has been recorded!\n\nVote ID: {vote_id}\nCandidate: {candidate_name}\nLedger Index: {ledger_index}\nBlock Hash: {block_hash[:16]}...\n\nThank you for participating in the democratic process."
                     )
-                    
-                    # Clear user data and return to main menu
                     self.parent.user_data["verified_voter_id"] = None
                     self.parent.user_data["selected_election"] = None
                     self.parent.user_data["ovt"] = None
@@ -1198,7 +1173,6 @@ class VotingInterfaceFrame(ctk.CTkFrame):
                 else:
                     messagebox.showerror("Vote Failed", error)
                     self.vote_btn.configure(state="normal", text="Submit Vote")
-                
             except Exception as e:
                 messagebox.showerror("Error", f"Failed to submit vote: {str(e)}")
                 self.vote_btn.configure(state="normal", text="Submit Vote")
