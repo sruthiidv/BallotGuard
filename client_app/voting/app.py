@@ -10,6 +10,8 @@ import io
 import numpy as np
 import sys
 import os
+from client_app.storage.localdb import init
+
 
 # Add the client_app directory to the Python path
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
@@ -20,6 +22,9 @@ from auth.encode import bgr_to_jpeg_base64
 from crypto.vote_crypto import prepare_vote_data, generate_vote_id, verify_vote_receipt
 from api_client import BallotGuardAPI
 from config import SERVER_BASE
+
+# --- Initialize the database ---
+init()
 
 # Initialize API client
 api_client = BallotGuardAPI()
