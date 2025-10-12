@@ -7,6 +7,7 @@ The signing of the block header is done by ledger_crypto.sign_block_header and s
 import hashlib
 import time
 import json
+from server_backend.crypto import ledger_crypto
 
 class Block:
     def __init__(self, index, timestamp, vote_hash, previous_hash, header_signature=None):
