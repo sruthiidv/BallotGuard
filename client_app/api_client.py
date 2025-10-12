@@ -1,0 +1,83 @@
+import requests
+import json
+from config import SERVER_BASE
+
+class BallotGuardAPI:
+    def __init__(self, server_base=None):
+        self.server_base = server_base or SERVER_BASE
+    
+    def get_elections(self):
+        """Get list of all elections"""
+        try:
+            response = requests.get(f"{self.server_base}/elections", timeout=5)
+            if response.status_code == 200:
+                return response.json(), None
+            else:
+                return None, f"Server error: {response.status_code}"
+        except requests.exceptions.RequestException as e:
+            return None, f"Network error: {str(e)}"
+    
+    def enroll_voter(self, face_template):
+        """Enroll a new voter - MVP Architecture endpoint"""
+        try:
+            data = {"face_template": face_template}
+            response = requests.post(f"{self.server_base}/voters/enroll", json=data, timeout=10)
+            
+            if response.status_code == 201:
+                return response.json(), None
+            else:
+                error_data = response.json() if response.headers.get('content-type') == 'application/json' else {}
+                error_msg = error_data.get("error", {}).get("message", f"Server error: {response.status_code}")
+                return None, error_msg
+        except requests.exceptions.RequestException as e:
+            return None, f"Network error: {str(e)}"
+    
+    def verify_face(self, voter_id, election_id):
+        """Face verification - MVP Architecture endpoint"""
+        try:
+            data = {
+                "voter_id": voter_id,
+                "election_id": election_id
+            }
+            response = requests.post(f"{self.server_base}/auth/face/verify", json=data, timeout=10)
+            
+            if response.status_code == 200:
+                return response.json(), None
+            else:
+                error_data = response.json() if response.headers.get('content-type') == 'application/json' else {}
+                error_msg = error_data.get("error", {}).get("message", "Verification failed")
+                return None, error_msg
+        except requests.exceptions.RequestException as e:
+            return None, f"Network error: {str(e)}"
+    
+    def issue_ovt(self, voter_id, election_id):
+        """Issue OVT token - MVP Architecture endpoint"""
+        try:
+            data = {
+                "voter_id": voter_id,
+                "election_id": election_id
+            }
+            response = requests.post(f"{self.server_base}/ovt/issue", json=data, timeout=10)
+            
+            if response.status_code == 200:
+                return response.json(), None
+            else:
+                error_data = response.json() if response.headers.get('content-type') == 'application/json' else {}
+                error_msg = error_data.get("error", {}).get("message", "Failed to issue voting token")
+                return None, error_msg
+        except requests.exceptions.RequestException as e:
+            return None, f"Network error: {str(e)}"
+    
+    def cast_vote(self, vote_data):
+        """Cast a vote - MVP Architecture endpoint"""
+        try:
+            response = requests.post(f"{self.server_base}/votes", json=vote_data, timeout=10)
+            
+            if response.status_code == 200:
+                return response.json(), None
+            else:
+                error_data = response.json() if response.headers.get('content-type') == 'application/json' else {}
+                error_msg = error_data.get("error", {}).get("message", f"Server error: {response.status_code}")
+                return None, error_msg
+        except requests.exceptions.RequestException as e:
+            return None, f"Network error: {str(e)}"
