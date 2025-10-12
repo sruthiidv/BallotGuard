@@ -1,6 +1,9 @@
 import requests
 import json
-from config import SERVER_BASE
+try:
+    from client_app.client_config import SERVER_BASE
+except ImportError:
+    from client_config import SERVER_BASE
 
 class BallotGuardAPI:
     def __init__(self, server_base=None):
@@ -17,12 +20,11 @@ class BallotGuardAPI:
         except requests.exceptions.RequestException as e:
             return None, f"Network error: {str(e)}"
     
-    def enroll_voter(self, face_template):
-        """Enroll a new voter - MVP Architecture endpoint"""
+    def enroll_voter(self, face_encoding):
+        """Enroll a new voter - MVP Architecture endpoint (now expects face_encoding)"""
         try:
-            data = {"face_template": face_template}
+            data = {"face_encoding": face_encoding}
             response = requests.post(f"{self.server_base}/voters/enroll", json=data, timeout=10)
-            
             if response.status_code == 201:
                 return response.json(), None
             else:
@@ -32,15 +34,15 @@ class BallotGuardAPI:
         except requests.exceptions.RequestException as e:
             return None, f"Network error: {str(e)}"
     
-    def verify_face(self, voter_id, election_id):
-        """Face verification - MVP Architecture endpoint"""
+    def verify_face(self, voter_id, election_id, face_encoding):
+        """Face verification - MVP Architecture endpoint (now expects face_encoding)"""
         try:
             data = {
                 "voter_id": voter_id,
-                "election_id": election_id
+                "election_id": election_id,
+                "face_encoding": face_encoding
             }
             response = requests.post(f"{self.server_base}/auth/face/verify", json=data, timeout=10)
-            
             if response.status_code == 200:
                 return response.json(), None
             else:

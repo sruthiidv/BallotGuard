@@ -1,13 +1,15 @@
 import cv2
-import numpy as np
 import face_recognition
 import base64
-import sys
-import os
 
-# Add parent directory for imports
-sys.path.append(os.path.dirname(__file__))
-from encode import bgr_to_jpeg_base64
+
+def bgr_to_jpeg_base64(img_bgr, quality: int = 90) -> str | None:
+    if img_bgr is None:
+        return None
+    ok, buf = cv2.imencode(".jpg", img_bgr, [int(cv2.IMWRITE_JPEG_QUALITY), quality])
+    if not ok:
+        return None
+    return base64.b64encode(buf.tobytes()).decode("ascii")
 
 def capture_face_encoding(frame):
     """Capture face encoding from a video frame"""

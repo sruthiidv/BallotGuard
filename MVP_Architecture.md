@@ -4,9 +4,9 @@
 
 **Core guarantees:**
 
-- **Authenticity:** Admin enrollment + face verification with liveness and lockout.
+- **Authenticity:** Admin enrollment + face verification with lockout.
 - **Confidentiality:** Paillier encryption; only **totals** are decrypted.
-- **Integrity:** Hash‑chained **per‑election** ledger with optional Ed25519 signatures and Merkle checkpoints.
+- **Integrity:** Hash‑chained **per‑election** ledger with optional RSA signatures and Merkle checkpoints.
 - **Anti‑replay:** One‑Time Voting Token (**OVT**, server‑signed, one‑use) + idempotent `vote_id`.
 - **Unlinkability:** No identity data in the vote pipeline (ciphertexts + tokens only).
 
@@ -14,10 +14,10 @@
 
 ```
 [Booth App (Tkinter, kiosk)]                 [Flask Server (service user)]       [SQLite]        [Ledger Files]
-  • Face Auth UI + Liveness                    • Auth Service (face pass → OVT)     voters               /ledger/EL-*/ledger.jsonl
+  • Face Auth UI                    • Auth Service (face pass → OVT)     voters               /ledger/EL-*/ledger.jsonl
   • Ballot Builder (Paillier PK)               • Vote Ingest (exactly-once)         elections           /ledger/EL-*/anchors/*
   • Client Hash (SHA-256)                      • Crypto/Tally (Paillier SK)         voter_election_status
-  • Local Queue (sqlite outbox)                • Ledger Service (hash chain)        ovt_tokens          /proof/EL-*/...
+  •              • Ledger Service (hash chain)        ovt_tokens          /proof/EL-*/...
   • HTTPS to localhost                         • Admin Console (web UI)             encrypted_votes
                                               • Audit Logger                        ledger_blocks (mirror)
                                                                                     audit_log
@@ -28,7 +28,7 @@
 
 ## 2) Components & Responsibilities
 
-- **Booth App (Tkinter):** Voter UX; face auth with liveness; requests OVT; encrypts ballot (Paillier PK); computes `client_hash`; pushes `/votes`; retries via local outbox. **On startup, the Booth queries the server for the currently OPEN election_id. If none, it refuses to start the voting flow.**
+- **Booth App (Tkinter):** Voter UX; face auth; requests OVT; encrypts ballot (Paillier PK); computes `client_hash`; pushes `/votes`. **On startup, the Booth queries the server for the currently OPEN election_id. If none, it refuses to start the voting flow.**
 - **Flask Server:** Validates OVT; stores ciphertext; appends to ledger (atomic with prev_hash continuity); exposes admin UI for election lifecycle; runs tally; exports proof bundle.
 - **DB (SQLite):** Authoritative store for voters, election state, encrypted votes, OVT tokens, mirrored ledger blocks, audit logs.
 - **Ledger (Per‑Election):** Append‑only JSONL file per election with chained block hashes; periodic Merkle checkpoints; optional Ed25519 signatures; anchored snapshots.
@@ -47,7 +47,7 @@
 - **Server signing keypair (SK_server_sign / PK_server_sign)**:
   - **SK_server_sign**: Held on Server; used to sign OVTs.
   - **PK_server_sign**: Distributed to Booth apps; used to verify OVT signatures.
-- Algorithm: **Ed25519 preferred** (RSA-2048 acceptable for fallback).
+- Algorithm: **RSA-2048** (Ed25519 not used).
 
 #### Ledger Integrity & Anchoring
 
@@ -56,7 +56,7 @@
     - sign each block header (ensures blocks cannot be altered undetected),
     - sign periodic checkpoints (Merkle roots) to anchor the ledger history.
   - **PK_ledger_sign**: Published to auditors/observers; used to verify both block headers and checkpoints.
-- Anchoring method: **digital signatures only** (no blockchain posting).
+- Anchoring method: **RSA digital signatures only** (no blockchain posting).
   - Signed checkpoints can be exported to DB, admin console, or external observers for independent verification.
 
 #### Hashes
@@ -194,7 +194,7 @@
   },
   "prev_hash": "<hex>",
   "hash": "sha256(index||election_id||vote_hash||payload_meta||prev_hash)",
-  "sig": "<optional Ed25519(block_header)>"
+  "sig": "<optional RSA(block_header)>"
 }
 ```
 
@@ -313,8 +313,8 @@
 
 - All auditor endpoints are **read-only** and scoped to one election per call.
 - Verification uses public keys only:
-  - `PK_ledger_sign` → verify block/anchor signatures
-  - `PK_server_sign` → verify OVT format if needed
+  - `PK_ledger_sign` → verify block/anchor signatures (RSA)
+  - `PK_server_sign` → verify OVT format if needed (RSA)
 - Proof bundles contain **ledger snapshot, ciphertexts, redacted audit log, and `election_salt`**. They **exclude** `ovt_tokens` and all voter identity data.
 - All endpoints enforce **cross-election isolation**
 
@@ -365,7 +365,6 @@
 - _Story:_ As a voter, I want to authenticate using my face at a booth.
 - _Acceptance Criteria:_
   - Maximum 3 attempts per session.
-  - Liveness detection required.
   - Lockout 60 seconds after failed attempts.
   - Audit log entry created with confidence score.
 
@@ -391,16 +390,7 @@
   - Server signature included for validation at vote submission.
   - Audit entry created for issuance.
 
-#### Auditor
-
-**Audit Election**
-
-- _Story:_ As an auditor, I want to verify the election independently.
-- _Acceptance Criteria:_
-  - Can access read-only APIs: `/auditor/elections`, `/auditor/elections/{id}/tally-report`, `/auditor/elections/{id}/audit-log`.
-  - Proof bundle downloaded contains votes, ledger, and audit logs plus `election_salt`.
-  - Verification uses public keys only (`PK_ledger_sign`, `PK_server_sign`).
-  - Cannot create or modify votes or election state.
+#
 
 ## 8) Sequence Diagrams (ASCII)
 
@@ -542,7 +532,6 @@ Auditor    Server                 DB
 
 - Happy path: normal voting from auth → OVT → cast vote → ledger append.
 - Lockout path: test max attempts for face auth.
-- Network down / retry: ensure outbox mechanism works.
 - Duplicate submissions: same `vote_id` acknowledged, no double append.
 
 **Security Tests:**

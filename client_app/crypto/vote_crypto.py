@@ -18,9 +18,17 @@ def prepare_vote_data(vote_id, election_id, candidate_id, candidate_index=None, 
         public_key = build_public_key_from_n(n_int)
         encrypted_vector = encrypt_multicandidate_vote(candidate_index, total_candidates, public_key)
         ciphertext = [str(e.ciphertext()) for e in encrypted_vector]
+        try:
+            print(f"DEBUG: Encryption complete (Paillier). vote_id={vote_id}, election_id={election_id}, candidate_id={candidate_id}, vector_len={len(ciphertext)}")
+        except Exception:
+            pass
     else:
         # Mock encryption fallback
         ciphertext = f"encrypted_vote_for_{candidate_id}"
+        try:
+            print(f"DEBUG: Mock encryption used. vote_id={vote_id}, election_id={election_id}, candidate_id={candidate_id}")
+        except Exception:
+            pass
 
     # Generate client-side integrity hash
     vote_content = f"{vote_id}{election_id}{candidate_id}"
