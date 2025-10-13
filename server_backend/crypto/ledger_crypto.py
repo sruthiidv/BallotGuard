@@ -8,7 +8,8 @@ from cryptography.hazmat.primitives import serialization, hashes
 import hashlib
 import json
 import time
-from client_app.storage.localdb import store_receipt, init
+from client_app.storage.localdb import store_receipt, init, connect
+import os
 
 
 # Generate ledger RSA keys (server should persist and protect SK_ledger)
@@ -76,7 +77,9 @@ def export_ledger_private_key_pem(password: bytes = None):
         encryption = serialization.BestAvailableEncryption(password)
     return SK_ledger_sign.private_bytes(encoding=serialization.Encoding.PEM, format=serialization.PrivateFormat.PKCS8, encryption_algorithm=encryption)
 
-def fetch_last_block(election_id: str, db_path="client_local.db"):
+def fetch_last_block(election_id: str, db_path=None):
+    if db_path is None:
+        db_path = os.path.join(os.path.dirname(__file__), '../../database/server_ledger.db')
     """
     Returns the last block's index and hash for a given election,
     or (0, "0") if no blocks exist.
@@ -93,7 +96,9 @@ def fetch_last_block(election_id: str, db_path="client_local.db"):
     else:
         return 0, "0"  # Genesis block
 
-def store_block(vote_id: str, election_id: str, block_header: dict, signature: bytes, db_path="client_local.db"):
+def store_block(vote_id: str, election_id: str, block_header: dict, signature: bytes, db_path=None):
+    if db_path is None:
+        db_path = os.path.join(os.path.dirname(__file__), '../../database/server_ledger.db')
     """
     Store a ledger block in the receipts table.
     """
