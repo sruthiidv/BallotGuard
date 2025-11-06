@@ -10,11 +10,9 @@ import io
 import numpy as np
 import sys
 import os
+# Add the client_app directory to the Python path so package imports work when running this file directly
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from client_app.storage.localdb import init
-
-
-# Add the client_app directory to the Python path
-sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
 # Import client_app modules
 from auth.face_verify import capture_face_photo, detect_faces, draw_face_rectangles, capture_face_encoding, bgr_to_jpeg_base64
@@ -1237,3 +1235,12 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+# Backwards-compatible alias: some launchers/importers expect `run_ui()`.
+def run_ui():
+    """Alias for launching the UI programmatically.
+
+    Use this if another module imports `run_ui` (older code). It simply
+    forwards to `main()`.
+    """
+    return main()
