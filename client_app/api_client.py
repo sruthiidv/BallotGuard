@@ -83,3 +83,29 @@ class BallotGuardAPI:
                 return None, error_msg
         except requests.exceptions.RequestException as e:
             return None, f"Network error: {str(e)}"
+    
+    def update_election_status(self, election_id, action):
+        """Update election status (open/close/pause/resume/tally)"""
+        try:
+            response = requests.post(f"{self.server_base}/elections/{election_id}/{action}", timeout=10)
+            if response.status_code == 200:
+                return response.json(), None
+            else:
+                error_data = response.json() if response.headers.get('content-type') == 'application/json' else {}
+                error_msg = error_data.get("error", {}).get("message", f"Server error: {response.status_code}")
+                return None, error_msg
+        except requests.exceptions.RequestException as e:
+            return None, f"Network error: {str(e)}"
+    
+    def get_election_results(self, election_id):
+        """Get election results - MVP Architecture endpoint"""
+        try:
+            response = requests.get(f"{self.server_base}/elections/{election_id}/proof", timeout=10)
+            if response.status_code == 200:
+                return response.json(), None
+            else:
+                error_data = response.json() if response.headers.get('content-type') == 'application/json' else {}
+                error_msg = error_data.get("error", {}).get("message", f"Server error: {response.status_code}")
+                return None, error_msg
+        except requests.exceptions.RequestException as e:
+            return None, f"Network error: {str(e)}"
