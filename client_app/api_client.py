@@ -83,6 +83,33 @@ class BallotGuardAPI:
                 return None, error_msg
         except requests.exceptions.RequestException as e:
             return None, f"Network error: {str(e)}"
+
+    def get_voters(self, status=None):
+        """Return list of voters. Optional status filter: 'pending' or 'active'."""
+        try:
+            url = f"{self.server_base}/voters"
+            if status:
+                url = f"{url}?status={status}"
+            response = requests.get(url, timeout=8)
+            if response.status_code == 200:
+                return response.json(), None
+            else:
+                return None, f"Server error: {response.status_code}"
+        except requests.exceptions.RequestException as e:
+            return None, f"Network error: {str(e)}"
+
+    def get_voter_status(self, voter_id):
+        """Return status for a single voter by querying /voters and filtering."""
+        try:
+            voters, err = self.get_voters()
+            if err:
+                return None, err
+            for v in voters:
+                if v.get('voter_id') == voter_id:
+                    return v.get('status'), None
+            return None, "Voter not found"
+        except Exception as e:
+            return None, f"Error: {str(e)}"
     
     def update_election_status(self, election_id, action):
         """Update election status (open/close/pause/resume/tally)"""
@@ -100,7 +127,7 @@ class BallotGuardAPI:
     def get_election_results(self, election_id):
         """Get election results - MVP Architecture endpoint"""
         try:
-            response = requests.get(f"{self.server_base}/elections/{election_id}/proof", timeout=10)
+            response = requests.get(f"{self.server_base}/elections/{election_id}/results", timeout=10)
             if response.status_code == 200:
                 return response.json(), None
             else:

@@ -176,8 +176,47 @@ class AdminPanelApp:
         if not election:
             messagebox.showwarning("No election", "Please select an election.")
             return
-        # For now, results are shown in the text widget so just notify
-        messagebox.showinfo("Results", f"Shown in the Results panel for '{election.get('title')}'.")
+        # Try to get tallied results from the database connector (or mock)
+        try:
+            eid = election.get('id')
+            ok, res = self.database.get_election_results(eid)
+            if not ok:
+                messagebox.showerror("Error", f"Failed to fetch results: {res}")
+                return
+
+            # Build a readable summary
+            total_votes = res.get('total_votes', 0)
+            eligible = res.get('eligible_voters', 0)
+            turnout = res.get('turnout_percentage', 0.0)
+            results_list = res.get('results', []) or []
+
+            summary = f"Results for '{election.get('title')}'\n\n"
+            summary += f"Total votes: {total_votes}\nEligible voters: {eligible}\nTurnout: {turnout:.1f}%\n\n"
+            for r in results_list:
+                summary += f"{r.get('name', 'Unknown')} (id:{r.get('candidate_id')}): {r.get('votes',0)} votes ({r.get('percentage',0.0):.1f}%)\n"
+
+            winner = res.get('winner')
+            if winner:
+                if isinstance(winner, dict) and winner.get('tie'):
+                    winners = winner.get('winners', [])
+                    win_names = ', '.join([w.get('name', w.get('candidate_id')) for w in winners])
+                    summary += f"\nResult: TIE between: {win_names}\n"
+                else:
+                    summary += f"\nWinner: {winner.get('name', winner.get('candidate_id'))} with {winner.get('votes',0)} votes\n"
+
+            # Show in a modal and also populate the results text
+            messagebox.showinfo("Election Results", summary)
+            # Also update the results pane
+            self.result_text.config(state="normal")
+            self.result_text.delete("1.0", tk.END)
+            self.result_text.insert(tk.END, summary)
+            self.result_text.config(state="disabled")
+
+            # Refresh UI state (in case status changed)
+            self.refresh_elections()
+            self.update_dashboard_selection_ui()
+        except Exception as e:
+            messagebox.showerror("Error", f"Could not retrieve results: {e}")
 
     def export_results(self):
         if self.blockchain.get_chain_status().get("broken"):
@@ -238,6 +277,11 @@ class AdminPanelApp:
                 messagebox.showinfo("Finalized", msg)
                 self.refresh_elections()
                 self.update_dashboard_selection_ui()
+                # After finalizing, show final tallied results to admin
+                try:
+                    self.view_results()
+                except Exception:
+                    pass
             else:
                 messagebox.showerror("Error", msg)
         except Exception as ex:

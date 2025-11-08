@@ -11,14 +11,28 @@ import numpy as np
 import sys
 import os
 # Add the client_app directory to the Python path so package imports work when running this file directly
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+# When this file is executed directly, Python's import path (sys.path[0]) is the
+# `client_app/voting` directory which prevents importing the top-level
+# `client_app` package. Insert the repository's BallotGuard root so imports like
+# `client_app.storage.localdb` resolve when running the script directly.
+ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
+if ROOT_DIR not in sys.path:
+    sys.path.insert(0, ROOT_DIR)
 from client_app.storage.localdb import init
 
 # Import client_app modules
-from auth.face_verify import capture_face_photo, detect_faces, draw_face_rectangles, capture_face_encoding, bgr_to_jpeg_base64
-from crypto.vote_crypto import prepare_vote_data, generate_vote_id, verify_vote_receipt
-from api_client import BallotGuardAPI
-from client_app.client_config import SERVER_BASE
+try:
+    # Prefer absolute package imports (works when running as module or via run_voter.ps1)
+    from client_app.auth.face_verify import capture_face_photo, detect_faces, draw_face_rectangles, capture_face_encoding, bgr_to_jpeg_base64
+    from client_app.crypto.vote_crypto import prepare_vote_data, generate_vote_id, verify_vote_receipt
+    from client_app.api_client import BallotGuardAPI
+    from client_app.client_config import SERVER_BASE
+except Exception:
+    # Fallback to relative imports (if executed in a different context)
+    from auth.face_verify import capture_face_photo, detect_faces, draw_face_rectangles, capture_face_encoding, bgr_to_jpeg_base64
+    from crypto.vote_crypto import prepare_vote_data, generate_vote_id, verify_vote_receipt
+    from api_client import BallotGuardAPI
+    from client_app.client_config import SERVER_BASE
 
 # --- Initialize the database ---
 init()
@@ -341,18 +355,35 @@ class VoterMenuFrame(ctk.CTkFrame):
     
     def check_voter_status(self, election_id):
         """Check voter registration status for this election"""
-        # For now, check local storage or use a simple state
+        # Prefer authoritative server status when we have a voter_id
         voter_id = self.parent.user_data.get("voter_id")
         if not voter_id:
             return "not_registered"
-        
-        # Check with server (simplified for now)
-        key = f"{election_id}_{voter_id}"
-        if key in self.parent.user_data.get("registrations", {}):
-            reg_data = self.parent.user_data["registrations"][key]
-            return reg_data.get("status", "not_registered")
-        
-        return "not_registered"
+
+        try:
+            status, err = api_client.get_voter_status(voter_id)
+            if err:
+                # Fall back to local cache if server is unreachable
+                key = f"{election_id}_{voter_id}"
+                if key in self.parent.user_data.get("registrations", {}):
+                    reg_data = self.parent.user_data["registrations"][key]
+                    return reg_data.get("status", "not_registered")
+                return "not_registered"
+
+            # Normalize server status into expected values
+            if status == 'active':
+                return 'approved'
+            elif status == 'pending':
+                return 'pending'
+            else:
+                return 'not_registered'
+        except Exception:
+            # On any error, fall back to local cache
+            key = f"{election_id}_{voter_id}"
+            if key in self.parent.user_data.get("registrations", {}):
+                reg_data = self.parent.user_data["registrations"][key]
+                return reg_data.get("status", "not_registered")
+            return "not_registered"
     
     def check_if_already_voted(self, election_id):
         """Check if voter has already voted in this election"""
@@ -733,10 +764,8 @@ class RegistrationFrame(ctk.CTkFrame):
                     "Registration Submitted", 
                     f"Registration submitted successfully!\n\nYour Voter ID: {voter_id}\n\nWaiting for approval..."
                 )
-                
-                # Auto-approve after 3 seconds (for demo)
-                self.parent.after(3000, lambda: self.auto_approve(reg_key))
-                
+                    # Do NOT auto-approve here; approval must be performed by an admin.
+                    # The client will show "Pending Approval" until the server reports status 'active'.
                 # Clear form and go back
                 self.clear_form()
                 self.parent.show_frame("VoterMenu")
@@ -749,14 +778,9 @@ class RegistrationFrame(ctk.CTkFrame):
             self.submit_btn.configure(state="normal", text="Submit Registration")
     
     def auto_approve(self, reg_key):
-        """Auto-approve registration after delay"""
-        if reg_key in self.parent.user_data.get("registrations", {}):
-            self.parent.user_data["registrations"][reg_key]["status"] = "approved"
-            messagebox.showinfo("Approved", "Your registration has been approved! You can now vote.")
-            
-            # Refresh the voter menu to update button states
-            if hasattr(self.parent.frames.get("VoterMenu"), 'load_elections'):
-                self.parent.frames["VoterMenu"].load_elections()
+        """Deprecated demo auto-approve. Approval is now done by admin via server."""
+        # This function previously simulated admin approval; it's intentionally left as a no-op.
+        return
     
     def clear_form(self):
         """Clear the registration form"""

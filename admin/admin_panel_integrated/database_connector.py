@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 import requests
 
 class DatabaseConnector:
-    def __init__(self, flask_server_url="http://localhost:5000"):
+    def __init__(self, flask_server_url="http://127.0.0.1:8443"):
         self.flask_server_url = flask_server_url
         
         # This call must be correctly indented to work
@@ -109,6 +109,63 @@ class DatabaseConnector:
         # Actual API call logic here...
         return False, "Cannot delete: Database not connected", None
         
-    # Other methods (get_election_results, update_election_status, etc.) follow here...
+    def get_election_results(self, election_id):
+        """Retrieve tallied results for an election. Returns (True, results) or (False, error)"""
+        # Mock path
+        if not self.db_available:
+            election = next((e for e in self.mock_elections if e['id'] == election_id), None)
+            if not election:
+                return False, f"Mock election ID {election_id} not found"
+
+            candidates = election.get('candidates', [])
+            total_votes = election.get('votes_cast', 0)
+            # distribute mock votes evenly
+            per = total_votes // len(candidates) if candidates and total_votes else 100
+            results = []
+            for i, c in enumerate(candidates):
+                results.append({
+                    'candidate_id': i+1,
+                    'name': c.get('name', f'Candidate {i+1}'),
+                    'votes': per,
+                    'percentage': (per / max(1, total_votes) * 100) if total_votes else 0.0
+                })
+
+            # find winner (highest votes)
+            if results:
+                max_votes = max(r['votes'] for r in results)
+                winners = [r for r in results if r['votes'] == max_votes]
+                if len(winners) > 1:
+                    winner = {'tie': True, 'winners': winners}
+                else:
+                    winner = winners[0]
+            else:
+                winner = None
+
+            payload = {
+                'election_id': election_id,
+                'total_votes': total_votes,
+                'eligible_voters': election.get('eligible_voters', 0),
+                'turnout_percentage': (total_votes / max(1, election.get('eligible_voters', 1)) * 100) if election.get('eligible_voters') else 0.0,
+                'results': results,
+                'winner': winner
+            }
+            return True, payload
+
+        # Live server path
+        try:
+            url = f"{self.flask_server_url}/api/elections/{election_id}/results"
+            resp = requests.get(url, timeout=8)
+            if resp.status_code == 200:
+                return True, resp.json()
+            else:
+                try:
+                    data = resp.json()
+                    return False, data.get('error', f"Server returned {resp.status_code}")
+                except Exception:
+                    return False, f"Server returned status {resp.status_code}"
+        except requests.exceptions.RequestException as e:
+            return False, f"Connection error: {e}"
+        
+    # Other methods (update_election_status, etc.) could be implemented similarly
 
 # ... (rest of the file is assumed to contain other methods or main block)

@@ -11,13 +11,31 @@ class APIClient:
         try:
             url = f"{self.BASE_URL}{endpoint}"
             if method == "GET":
-                response = requests.get(url)
+                response = requests.get(url, timeout=8)
             else:
-                response = requests.post(url, json=data)
-            
+                response = requests.post(url, json=data, timeout=10)
+
             response.raise_for_status()
             return True, response.json()
+        except requests.exceptions.ConnectionError as e:
+            # Connection refused / server not running
+            friendly = (
+                "Cannot connect to the backend server.\n"
+                "Please start the BallotGuard server and try again.\n\n"
+                "From the project root open PowerShell and run:\n"
+                "    python server\server.py\n\n"
+                "Then retry this action. If the server is running on a different host/port, update APIClient.BASE_URL accordingly."
+            )
+            return False, friendly
         except requests.RequestException as e:
+            # Other request-related errors (timeouts, HTTP errors)
+            try:
+                # If server returned JSON error, surface it
+                resp = getattr(e, 'response', None)
+                if resp is not None and resp.headers.get('content-type', '').startswith('application/json'):
+                    return False, resp.json()
+            except Exception:
+                pass
             return False, str(e)
 
     # Election Management
