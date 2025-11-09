@@ -794,7 +794,14 @@ def cast_vote():
         vote_id = data.get("vote_id")
         election_id = data.get("election_id")
         candidate_id = data.get("candidate_id")
-        ciphertext = data.get("ciphertext", "mock_encrypted_vote")
+        
+        # Handle encrypted_vote object from client
+        encrypted_vote = data.get("encrypted_vote", {})
+        if isinstance(encrypted_vote, dict):
+            ciphertext = encrypted_vote.get("ciphertext")
+        else:
+            ciphertext = data.get("ciphertext", "mock_encrypted_vote")
+            
         client_hash = data.get("client_hash")
         ovt = data.get("ovt", {})
         ovt_uuid = ovt.get("ovt_uuid") if ovt else None
@@ -940,6 +947,92 @@ def admin_verify_page():
 @app.route('/admin/simulate-tampering/<election_id>', methods=['POST'])
 def simulate_tampering(election_id):
     """Simulate tampering with the blockchain for demonstration"""
+    try:
+        data = request.get_json(silent=True) or {}
+        action = data.get('action', 'tamper')
+        
+        conn = get_db()
+        c = conn.cursor()
+        
+        # Create backup table if it doesn't exist
+        c.execute("""CREATE TABLE IF NOT EXISTS tampered_blocks_backup (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            election_id TEXT,
+            ledger_index INTEGER,
+            original_vote_hash TEXT,
+            original_hash TEXT,
+            tampered_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )""")
+        
+        if action == 'untamper':
+            # Find the most recent tampered block
+            c.execute("""
+                SELECT * FROM tampered_blocks_backup 
+                WHERE election_id = ? 
+                ORDER BY tampered_at DESC LIMIT 1""", (election_id,))
+            backup = c.fetchone()
+            
+            if not backup:
+                return jsonify({
+                    "message": "No tampered blocks found to restore",
+                    "details": "The blockchain has not been tampered with or has already been restored"
+                })
+            
+            # Restore the original block data
+            c.execute("""
+                UPDATE ledger_blocks 
+                SET vote_hash = ?, hash = ?
+                WHERE election_id = ? AND ledger_index = ?""", 
+                (backup['original_vote_hash'], backup['original_hash'],
+                 election_id, backup['ledger_index']))
+            
+            # Remove the backup record
+            c.execute("DELETE FROM tampered_blocks_backup WHERE id = ?", (backup['id'],))
+            conn.commit()
+            
+            return jsonify({
+                "message": "Successfully restored the blockchain",
+                "details": f"Block #{backup['ledger_index']} has been restored to its original state"
+            })
+        
+        # For tampering action
+        # Get a random non-genesis block
+        c.execute("""
+            SELECT ledger_index, vote_hash, hash 
+            FROM ledger_blocks 
+            WHERE election_id = ? AND ledger_index > 0 
+            ORDER BY RANDOM() LIMIT 1""", (election_id,))
+        block = c.fetchone()
+        
+        if not block:
+            return jsonify({
+                "message": "No blocks available for tampering",
+                "details": "The blockchain needs at least one non-genesis block"
+            })
+
+        # Backup original block data before tampering
+        c.execute("""
+            INSERT INTO tampered_blocks_backup 
+            (election_id, ledger_index, original_vote_hash, original_hash)
+            VALUES (?, ?, ?, ?)""", 
+            (election_id, block['ledger_index'], block['vote_hash'], block['hash']))
+
+        # Simulate tampering by modifying the vote hash
+        tampered_hash = "TAMPERED_" + sha_utils.compute_sha256_hex(str(time.time()))
+        c.execute("""
+            UPDATE ledger_blocks 
+            SET vote_hash = ? 
+            WHERE election_id = ? AND ledger_index = ?""",
+            (tampered_hash, election_id, block['ledger_index']))
+        
+        conn.commit()
+        return jsonify({
+            "message": f"Simulated tampering at Block #{block['ledger_index']}",
+            "details": "Modified the vote hash to break the blockchain's integrity. Use 'Verify' to see the impact and 'Undo Tampering' to restore."
+        })
+        
+    except Exception as e:
+        return jsonify({"error": "OPERATION_FAILED", "message": str(e)}), 500
     try:
         conn = get_db()
         c = conn.cursor()

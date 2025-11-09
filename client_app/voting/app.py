@@ -132,16 +132,38 @@ class MainMenuFrame(ctk.CTkFrame):
         logo_container = ctk.CTkFrame(welcome_frame, fg_color="transparent")
         logo_container.pack(pady=(20, 20), expand=True)
         
-        # Logo frame with ballot box icon
+        # Logo frame with PNG logo
         logo_frame = ctk.CTkFrame(logo_container, fg_color="transparent")
         logo_frame.pack()
         
-        # Large ballot box icon
-        logo_label = ctk.CTkLabel(
-            logo_frame,
-            text="🗳️",  # Ballot box emoji
-            font=ctk.CTkFont(size=120)  # Large icon size
-        )
+        # Load and display PNG logo
+        logo_path = os.path.join(os.path.dirname(__file__), '..', 'assets', 'Untitled design.png')
+        if os.path.exists(logo_path):
+            try:
+                logo_image = ctk.CTkImage(
+                    light_image=Image.open(logo_path),
+                    dark_image=Image.open(logo_path),
+                    size=(150, 150)  # Adjust size as needed
+                )
+                logo_label = ctk.CTkLabel(
+                    logo_frame,
+                    text="",  # No text, just image
+                    image=logo_image
+                )
+            except Exception as e:
+                # Fallback to emoji if image loading fails
+                logo_label = ctk.CTkLabel(
+                    logo_frame,
+                    text="🗳️",  # Ballot box emoji
+                    font=ctk.CTkFont(size=120)  # Large icon size
+                )
+        else:
+            # Fallback to emoji if file doesn't exist
+            logo_label = ctk.CTkLabel(
+                logo_frame,
+                text="🗳️",  # Ballot box emoji
+                font=ctk.CTkFont(size=120)  # Large icon size
+            )
         logo_label.pack(pady=20)
 
         # App title
@@ -163,7 +185,7 @@ class MainMenuFrame(ctk.CTkFrame):
         # Enter button with clear call to action
         enter_btn = ctk.CTkButton(
             welcome_frame,
-            text="�️ Start Voting",
+            text="Start Voting",
             font=ctk.CTkFont(size=18, weight="bold"),
             width=320,
             height=56,

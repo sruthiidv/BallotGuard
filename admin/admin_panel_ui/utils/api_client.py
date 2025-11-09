@@ -45,6 +45,10 @@ class APIClient:
     def get_election(self, election_id):
         return self.api_request("GET", f"/elections/{election_id}")
 
+    def get_election_results(self, election_id):
+        """Get detailed election results including vote counts and blockchain status"""
+        return self.api_request("GET", f"/elections/{election_id}/results")
+
     def create_election(self, data):
         return self.api_request("POST", "/elections", data)
 
@@ -74,7 +78,11 @@ class APIClient:
     def block_voter(self, voter_id):
         return self.api_request("POST", f"/voters/{voter_id}/block")
 
-    # Ledger Verification
+    # Blockchain & Verification
+    def verify_blockchain(self, election_id):
+        """Verify blockchain integrity for an election"""
+        return self.api_request("GET", f"/blockchain/verify/{election_id}")
+
     def verify_ledger(self, election_id):
         return self.api_request("GET", f"/ledger/verify?election_id={election_id}")
 

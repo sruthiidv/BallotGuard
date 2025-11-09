@@ -131,11 +131,14 @@ class AdminPanel:
             
             status_frame = tk.Frame(inner_title, bg=self.BG_SECONDARY)
             status_frame.pack(side="right")
-            self.db_status_label = Label(status_frame, text="● DATABASE CONNECTED", 
+            self.db_status_label = Label(status_frame, text="● CHECKING...", 
                                        font=('Segoe UI', 10, 'bold'), 
-                                       foreground=self.SUCCESS_COLOR, 
+                                       foreground="orange", 
                                        background=self.BG_SECONDARY)
             self.db_status_label.pack(side="right", padx=(0, 10))
+            
+            # Check server connection
+            self.check_server_connection()
             
             # Divider
             tk.Frame(self.app, bg=self.ACCENT_BLUE, height=3).pack(fill="x", padx=0, pady=0)
@@ -145,6 +148,7 @@ class AdminPanel:
             notebook.pack(fill="both", expand=True, padx=0, pady=0)
             self.notebook = notebook
             
+            # Create tabs
             self.create_dashboard_tab(notebook)
             self.create_election_creation_tab(notebook)
             self.create_security_monitor_tab(notebook)
@@ -155,6 +159,41 @@ class AdminPanel:
             print(f"❌ Error in setup_ui: {e}")
             import traceback
             traceback.print_exc()
+    
+    def check_server_connection(self):
+        """Check if the server is reachable and update the status label"""
+        try:
+            # Try to get system health or elections list as a connection test
+            success, response = self.api.get_system_health()
+            if success:
+                self.db_status_label.config(
+                    text="● SERVER CONNECTED",
+                    foreground=self.SUCCESS_COLOR
+                )
+            else:
+                self.db_status_label.config(
+                    text="● SERVER UNREACHABLE",
+                    foreground=self.DANGER_COLOR
+                )
+        except Exception as e:
+            # If health endpoint doesn't exist, try elections as fallback
+            try:
+                success, response = self.api.get_elections()
+                if success:
+                    self.db_status_label.config(
+                        text="● SERVER CONNECTED",
+                        foreground=self.SUCCESS_COLOR
+                    )
+                else:
+                    self.db_status_label.config(
+                        text="● SERVER UNREACHABLE",
+                        foreground=self.DANGER_COLOR
+                    )
+            except Exception:
+                self.db_status_label.config(
+                    text="● SERVER OFFLINE",
+                    foreground=self.DANGER_COLOR
+                )
     
     def create_dashboard_tab(self, notebook):
         """Dashboard tab"""
