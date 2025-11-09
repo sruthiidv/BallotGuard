@@ -13,7 +13,7 @@ SERVER_DIR = os.path.dirname(__file__)
 if SERVER_DIR not in sys.path:
     sys.path.insert(0, SERVER_DIR)
 
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, render_template
 import uuid
 import time
 from server_backend.crypto import sha_utils, paillier_server
@@ -99,8 +99,8 @@ else:
 def get_public_key():
     return jsonify({"rsa_pub_pem": RSA_PUB_PEM})
 
-# Simple in-memory storage - matching MVP Architecture
-ELECTIONS = [
+# Initial elections data
+INITIAL_ELECTIONS = [
     {
         "election_id": "EL-2025-01",
         "name": "City Council Election 2025",
@@ -172,7 +172,7 @@ def _normalize_eid(eid: str) -> str:
 
 
 def find_election(election_id):
-    """Find election object in ELECTIONS with lenient matching.
+    """Find election by ID with lenient matching.
 
     Accepts either 'election_id' or 'id' keys, tolerates extra display text
     (like 'EL-2025-01: Name'), and matches case-insensitively.
@@ -180,29 +180,16 @@ def find_election(election_id):
     """
     if not election_id:
         return None
+
+    # Normalize the election ID
     key = _normalize_eid(str(election_id))
-    lk = key.lower()
-    for e in ELECTIONS:
-        # Check canonical keys
-        for candidate_key in ("election_id", "id", "id_str"):
-            val = e.get(candidate_key)
-            if val and str(val).strip().lower() == lk:
-                return e
-        # Also compare against any stringified id-like values
-        if str(e.get('election_id', '')).strip().lower() == lk:
-            return e
-        if str(e.get('id', '')).strip().lower() == lk:
-            return e
-    # Try DB fallback (in case server restarted and ELECTIONS not in-memory)
+    
+    # Try to load from DB first
     try:
-        db_eid = _normalize_eid(key)
-        db_found = load_election_from_db(db_eid)
-        if db_found:
-            # Cache in-memory for faster future lookups
-            ELECTIONS.append(db_found)
-            return db_found
+        return load_election_from_db(key)
     except Exception:
         pass
+    
     return None
 
 # SQLite DB setup for voters
@@ -221,6 +208,16 @@ def init_voters_table():
         face_encoding TEXT,
         status TEXT,
         created_at REAL
+    )''')
+    
+    # Tampered blocks backup table for demonstration
+    c.execute('''CREATE TABLE IF NOT EXISTS tampered_blocks_backup (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        election_id TEXT,
+        ledger_index INTEGER,
+        original_vote_hash TEXT,
+        original_hash TEXT,
+        tampered_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )''')
     # OVT tokens table
     c.execute('''CREATE TABLE IF NOT EXISTS ovt_tokens (
@@ -284,7 +281,7 @@ ensure_encrypted_votes_candidate_column()
 
 
 def init_elections_table():
-    """Create elections table and seed with in-memory ELECTIONS if empty."""
+    """Create elections table and seed with initial election data if empty."""
     conn = get_db()
     c = conn.cursor()
     c.execute('''CREATE TABLE IF NOT EXISTS elections (
@@ -298,10 +295,10 @@ def init_elections_table():
         election_salt TEXT,
         eligible_voters INTEGER DEFAULT 0
     )''')
-    # Seed from in-memory ELECTIONS if table is empty
+    # Seed from initial election data if table is empty
     c.execute("SELECT COUNT(*) FROM elections")
     if c.fetchone()[0] == 0:
-        for e in ELECTIONS:
+        for e in INITIAL_ELECTIONS:
             try:
                 c.execute("INSERT OR REPLACE INTO elections (election_id, name, status, start_date, end_date, description, candidates, election_salt, eligible_voters) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                           (e.get('election_id'), e.get('name'), e.get('status', 'draft'), e.get('start_date', ''), e.get('end_date', ''), e.get('description', ''), json.dumps(e.get('candidates', [])), e.get('election_salt', ''), e.get('eligible_voters', 0)))
@@ -380,14 +377,11 @@ init_elections_table()
 def get_elections():
     """Get list of all elections"""
     try:
-        # Prefer DB-backed elections so created elections persist
+        # Get all elections from the database
         db_list = load_all_elections_from_db()
-        if db_list:
-            return jsonify(db_list)
-    except Exception:
-        pass
-    # Fallback to in-memory list
-    return jsonify(ELECTIONS)
+        return jsonify(db_list)
+    except Exception as e:
+        return jsonify({"error": {"code": "LOAD_FAILED", "message": str(e)}}), 500
 
 
 @app.route('/elections/<election_id>', methods=['GET'])
@@ -444,12 +438,8 @@ def create_election():
             'election_salt': data.get('election_salt') or uuid.uuid4().hex[:8]
         }
 
-        # Add to in-memory list and persist to DB
-        ELECTIONS.append(election)
-        try:
-            save_election_to_db(election)
-        except Exception:
-            pass
+        # Save election to database
+        save_election_to_db(election)
 
         # If created as open, prepare voter_election_status entries for active voters
         if election['status'] == 'open':
@@ -602,10 +592,15 @@ def approve_voter(voter_id):
     # Make eligible for all open elections (in DB)
     conn2 = get_db()
     c2 = conn2.cursor()
-    for election in ELECTIONS:
-        if election["status"] == "open":
-            c2.execute("INSERT OR REPLACE INTO voter_election_status (election_id, voter_id, status, voted_flag, last_auth_ts) VALUES (?, ?, ?, ?, ?)",
-                (election["election_id"], voter_id, "active", 0, None))
+    
+    # Get all open elections from database
+    c2.execute("SELECT election_id FROM elections WHERE status='open'")
+    open_elections = c2.fetchall()
+    
+    for election in open_elections:
+        c2.execute("INSERT OR REPLACE INTO voter_election_status (election_id, voter_id, status, voted_flag, last_auth_ts) VALUES (?, ?, ?, ?, ?)",
+            (election['election_id'], voter_id, "active", 0, None))
+            
     conn2.commit()
     conn2.close()
     return jsonify({"status": "active"})
@@ -853,22 +848,14 @@ def cast_vote():
 
         # Get election salt for vote_hash
         election_salt = "default_salt"
-        # Prefer DB-backed election metadata
+        # Get election metadata from DB
         try:
             db_election = load_election_from_db(election_id)
             if db_election and db_election.get('election_salt'):
                 election_salt = db_election.get('election_salt')
-            else:
-                for election in ELECTIONS:
-                    if election.get("election_id") == election_id or election.get('id') == election_id:
-                        election_salt = election.get("election_salt", "default_salt")
-                        break
-        except Exception:
-            # Fallback to in-memory
-            for election in ELECTIONS:
-                if election.get("election_id") == election_id or election.get('id') == election_id:
-                    election_salt = election.get("election_salt", "default_salt")
-                    break
+        except Exception as e:
+            print(f"Warning: Could not load election salt from DB: {e}")
+            pass
 
         # Compute vote_hash using real SHA-256 util
         vote_hash = sha_utils.compute_sha256_hex(f"{ciphertext}{election_salt}")
@@ -945,6 +932,314 @@ def cast_vote():
             }
         }), 500
 
+@app.route('/admin/verify', methods=['GET'])
+def admin_verify_page():
+    """Admin interface for blockchain verification"""
+    return render_template('admin_verify.html')
+
+@app.route('/admin/simulate-tampering/<election_id>', methods=['POST'])
+def simulate_tampering(election_id):
+    """Simulate tampering with the blockchain for demonstration"""
+    try:
+        conn = get_db()
+        c = conn.cursor()
+        
+        # Verify election exists and is in appropriate state
+        c.execute("SELECT * FROM elections WHERE election_id = ?", (election_id,))
+        election = c.fetchone()
+        if not election:
+            return jsonify({"error": "NOT_FOUND", "message": "Election not found"}), 404
+        
+        # Get a random block (not genesis)
+        c.execute("""
+            SELECT ledger_index, vote_hash, hash
+            FROM ledger_blocks 
+            WHERE election_id = ? AND ledger_index > 0 
+            ORDER BY RANDOM() 
+            LIMIT 1""", (election_id,))
+        block = c.fetchone()
+        
+        if not block:
+            return jsonify({
+                "message": "No blocks available for tampering demonstration"
+            })
+
+        # Simulate tampering by modifying the vote hash
+        tampered_hash = "TAMPERED_" + block["vote_hash"][:20]
+        c.execute("""
+            UPDATE ledger_blocks 
+            SET vote_hash=? 
+            WHERE election_id=? AND ledger_index=?""",
+            (tampered_hash, election_id, block["ledger_index"]))
+        
+        conn.commit()
+        conn.close()
+
+        return jsonify({
+            "message": f"Simulated tampering at block {block['ledger_index']}. Verify to see the effect!",
+            "tampered_block": block["ledger_index"]
+        })
+
+    except Exception as e:
+        return jsonify({
+            "error": f"Error simulating tampering: {str(e)}"
+        }), 500
+
+@app.route('/blockchain/verify/<election_id>', methods=['GET'])
+def verify_blockchain(election_id):
+    """Comprehensive blockchain verification with visual feedback"""
+    try:
+        conn = get_db()
+        c = conn.cursor()
+        
+        # Get election details
+        c.execute("SELECT * FROM elections WHERE election_id = ?", (election_id,))
+        election = c.fetchone()
+        if not election:
+            return jsonify({
+                "error": "NOT_FOUND",
+                "message": "Election not found"
+            }), 404
+
+        # Get all blocks and their details
+        c.execute("""
+            SELECT lb.ledger_index, lb.vote_hash, lb.prev_hash, lb.hash, lb.ts,
+                   COUNT(ev.vote_id) as votes_in_block
+            FROM ledger_blocks lb
+            LEFT JOIN encrypted_votes ev ON 
+                ev.election_id = lb.election_id AND 
+                ev.ledger_index = lb.ledger_index
+            WHERE lb.election_id = ?
+            GROUP BY lb.ledger_index, lb.vote_hash, lb.prev_hash, lb.hash, lb.ts
+            ORDER BY lb.ledger_index""", (election_id,))
+        rows = c.fetchall()
+        block_rows = [dict(row) for row in rows]
+        
+        if not block_rows:
+            return jsonify({
+                "status": "empty",
+                "message": "No blocks found in blockchain",
+                "total_blocks": 0,
+                "total_votes": 0,
+                "blocks": []
+            })
+
+        # Get total votes
+        c.execute("SELECT COUNT(*) as count FROM encrypted_votes WHERE election_id = ?", (election_id,))
+        total_votes = c.fetchone()["count"]
+
+        # Verify blockchain integrity
+        blocks = []
+        prev_hash = "GENESIS"
+        is_valid = True
+        invalid_block = None
+
+        for row in block_rows:
+            # Create block object for validation
+            block_obj = blockchain_mod.Block(
+                index=row["ledger_index"],
+                timestamp=row["ts"],
+                vote_hash=row["vote_hash"],
+                previous_hash=row["prev_hash"]
+            )
+
+            # Check hash continuity
+            if row["prev_hash"] != prev_hash:
+                is_valid = False
+                invalid_block = row["ledger_index"]
+
+            # Check block hash validity
+            if row["hash"] != block_obj.hash:
+                is_valid = False
+                invalid_block = row["ledger_index"]
+
+            # Add block to response
+            blocks.append({
+                "index": row["ledger_index"],
+                "hash": row["hash"],
+                "timestamp": row["ts"],
+                "votes_in_block": row["votes_in_block"],
+                "is_valid": row["prev_hash"] == prev_hash and row["hash"] == block_obj.hash
+            })
+
+            prev_hash = row["hash"]
+
+        # Prepare response
+        response = {
+            "status": "valid" if is_valid else "tampered",
+            "message": "Blockchain verified successfully" if is_valid else f"Blockchain tampering detected at block {invalid_block}",
+            "total_blocks": len(blocks),
+            "total_votes": total_votes,
+            "blocks": blocks,
+            "election": {
+                "id": election["election_id"],
+                "name": election["name"],
+                "status": election["status"]
+            }
+        }
+
+        conn.close()
+        return jsonify(response)
+        
+        if not blocks:
+            return jsonify({
+                "message": "No votes found in blockchain",
+                "status": "empty"
+            })
+
+        # Check if blockchain is intact
+        is_valid = True
+        tampered_block = None
+        prev_hash = "GENESIS"
+        
+        for block in blocks:
+            # Recalculate this block's hash
+            block_obj = blockchain_mod.Block(
+                index=block["ledger_index"],
+                timestamp=block["ts"],
+                vote_hash=block["vote_hash"],
+                previous_hash=block["prev_hash"]
+            )
+            
+            # Two checks:
+            # 1. Does this block point to previous block correctly?
+            # 2. Has this block's content been modified?
+            if block["prev_hash"] != prev_hash or block["hash"] != block_obj.hash:
+                is_valid = False
+                tampered_block = block["ledger_index"]
+                break
+                
+            prev_hash = block["hash"]
+
+        # Get total votes for context
+        c.execute("SELECT COUNT(*) FROM encrypted_votes WHERE election_id=?", (election_id,))
+        total_votes = c.fetchone()[0]
+        
+        conn.close()
+
+        # Prepare detailed block information
+        block_details = []
+        prev_hash = "GENESIS"
+        for block in blocks:
+            # Check this block's validity
+            block_obj = blockchain_mod.Block(
+                index=block["ledger_index"],
+                timestamp=block["ts"],
+                vote_hash=block["vote_hash"],
+                previous_hash=block["prev_hash"]
+            )
+            
+            is_block_valid = (block["prev_hash"] == prev_hash and 
+                            block["hash"] == block_obj.hash)
+            
+            block_details.append({
+                "index": block["ledger_index"],
+                "hash": block["hash"],
+                "vote_hash": block["vote_hash"],
+                "prev_hash": block["prev_hash"],
+                "timestamp": block["ts"],
+                "is_valid": is_block_valid
+            })
+            
+            prev_hash = block["hash"]
+
+        if is_valid:
+            return jsonify({
+                "status": "valid",
+                "message": "✅ Blockchain is intact - no tampering detected",
+                "total_blocks": len(blocks),
+                "total_votes": total_votes,
+                "last_vote_time": blocks[-1]["ts"],
+                "blocks": block_details
+            })
+        else:
+            return jsonify({
+                "status": "tampered",
+                "message": f"❌ Tampering detected at block {tampered_block}!",
+                "tampered_block": tampered_block,
+                "total_blocks": len(blocks),
+                "total_votes": total_votes,
+                "blocks": block_details
+            })
+
+    except Exception as e:
+        return jsonify({
+            "status": "error",
+            "message": f"Error checking blockchain: {str(e)}"
+        }), 500
+
+@app.route('/elections/<election_id>/progress', methods=['GET'])
+def election_progress(election_id):
+    """Get real-time election progress and verification stats"""
+    try:
+        conn = get_db()
+        c = conn.cursor()
+
+        # Get election details
+        election = find_election(election_id)
+        if not election:
+            return jsonify({"error": "Election not found"}), 404
+
+        # Get voting progress stats
+        c.execute("""
+            SELECT 
+                COUNT(DISTINCT voter_id) as total_voters,
+                SUM(CASE WHEN voted_flag = 1 THEN 1 ELSE 0 END) as votes_cast
+            FROM voter_election_status 
+            WHERE election_id = ? AND status = 'active'
+        """, (election_id,))
+        voter_stats = c.fetchone()
+
+        # Get blockchain stats
+        c.execute("""
+            SELECT COUNT(*) as block_count, MAX(ts) as last_block_time
+            FROM ledger_blocks 
+            WHERE election_id = ?
+        """, (election_id,))
+        blockchain_stats = c.fetchone()
+
+        # Calculate turnout
+        total_voters = voter_stats["total_voters"] or 0
+        votes_cast = voter_stats["votes_cast"] or 0
+        turnout = (votes_cast / total_voters * 100) if total_voters > 0 else 0
+
+        # Get voting activity timeline (last 6 hours)
+        six_hours_ago = time.time() - (6 * 3600)
+        c.execute("""
+            SELECT strftime('%H:%M', datetime(ts, 'unixepoch', 'localtime')) as hour,
+                   COUNT(*) as votes
+            FROM encrypted_votes 
+            WHERE election_id = ? AND ts > ?
+            GROUP BY hour
+            ORDER BY hour
+        """, (election_id, six_hours_ago))
+        activity = c.fetchall()
+
+        conn.close()
+
+        return jsonify({
+            "election_id": election_id,
+            "name": election["name"],
+            "status": election["status"],
+            "progress": {
+                "eligible_voters": total_voters,
+                "votes_cast": votes_cast,
+                "turnout_percentage": round(turnout, 2),
+                "blockchain_blocks": blockchain_stats["block_count"],
+                "last_vote_time": blockchain_stats["last_block_time"]
+            },
+            "voting_timeline": [dict(row) for row in activity],
+            "verification": {
+                "blockchain_intact": verify_blockchain(election_id).json["status"] == "valid",
+                "total_blocks_verified": blockchain_stats["block_count"]
+            }
+        })
+
+    except Exception as e:
+        return jsonify({
+            "error": f"Error getting election progress: {str(e)}"
+        }), 500
+
 @app.route('/health', methods=['GET'])
 def health_check():
     """Health check endpoint"""
@@ -953,19 +1248,20 @@ def health_check():
     c = conn.cursor()
     c.execute("SELECT COUNT(*) FROM voters")
     voters_count = c.fetchone()[0]
-    conn.close()
     # Count votes and OVT tokens from DB
-    conn = get_db()
-    c = conn.cursor()
     c.execute("SELECT COUNT(*) FROM encrypted_votes")
     votes_count = c.fetchone()[0]
     c.execute("SELECT COUNT(*) FROM ovt_tokens")
     ovt_tokens_count = c.fetchone()[0]
+    # Count elections
+    c.execute("SELECT COUNT(*) FROM elections")
+    elections_count = c.fetchone()[0]
     conn.close()
+    
     return jsonify({
         "status": "healthy",
         "timestamp": time.time(),
-        "elections_count": len(ELECTIONS),
+        "elections_count": elections_count,
         "voters_count": voters_count,
         "votes_count": votes_count,
         "ovt_tokens_count": ovt_tokens_count
@@ -997,9 +1293,12 @@ def get_election_proof(election_id):
     return jsonify({"election_id": election_id, "blocks": blocks})
 
 
+from server_backend.crypto import paillier_server
+from phe import paillier
+
 @app.route('/elections/<election_id>/results', methods=['GET'])
 def get_election_results(election_id):
-    """Tally votes for an election and return results per candidate."""
+    """Tally votes for an election using homomorphic encryption."""
     found = find_election(election_id)
     if not found:
         return jsonify({"error": {"code": "NOT_FOUND", "message": "Election not found"}}), 404
@@ -1014,38 +1313,98 @@ def get_election_results(election_id):
     # Build candidate map id -> name
     cand_map = {c.get('candidate_id') or c.get('id') or str(i): c.get('name') for i, c in enumerate(candidates)}
 
+    # Get encrypted votes from database
     conn = get_db()
     c = conn.cursor()
-    c.execute("SELECT candidate_id, COUNT(*) as cnt FROM encrypted_votes WHERE election_id=? GROUP BY candidate_id", (found.get('election_id'),))
+    c.execute("SELECT candidate_id, ciphertext FROM encrypted_votes WHERE election_id=?", (found.get('election_id'),))
     rows = c.fetchall()
     conn.close()
 
-    counts = {r[0]: r[1] for r in rows}
-    total_votes = sum(counts.values())
-    eligible_voters = db_election.get('eligible_voters', 0) or 0
-    turnout = (total_votes / eligible_voters * 100) if eligible_voters else 0.0
+    # Initialize Paillier cryptosystem
+    try:
+        public_key = paillier.PaillierPublicKey(PAILLIER_N)
+        private_key = paillier.PaillierPrivateKey(public_key, PAILLIER_P, PAILLIER_Q)
+    except Exception as e:
+        return jsonify({"error": {"code": "CRYPTO_ERROR", "message": f"Error initializing cryptosystem: {str(e)}"}}), 500
 
+    # Group encrypted votes by candidate
+    candidate_votes = {}
+    for row in rows:
+        cid = row[0]
+        if cid not in candidate_votes:
+            candidate_votes[cid] = []
+        try:
+            # Deserialize encrypted vote
+            enc_vote = paillier.EncryptedNumber(public_key, int(row[1]))
+            candidate_votes[cid].append(enc_vote)
+        except Exception as e:
+            print(f"Warning: Could not deserialize vote for candidate {cid}: {e}")
+            continue
+
+    # Calculate encrypted sums and decrypt
     results_list = []
-    # Ensure all defined candidates appear in results (zero if none)
+    total_votes = 0
+
     for c_idx, cand in enumerate(candidates):
         cid = cand.get('candidate_id') or f"C{c_idx+1}"
-        votes = counts.get(cid, 0)
-        pct = (votes / total_votes * 100) if total_votes else 0.0
+        encrypted_votes = candidate_votes.get(cid, [])
+        
+        if encrypted_votes:
+            # Homomorphically sum encrypted votes
+            sum_votes = encrypted_votes[0]
+            for vote in encrypted_votes[1:]:
+                sum_votes += vote
+            
+            # Decrypt sum
+            try:
+                vote_count = private_key.decrypt(sum_votes)
+            except Exception as e:
+                print(f"Warning: Could not decrypt sum for candidate {cid}: {e}")
+                vote_count = 0
+        else:
+            vote_count = 0
+            
+        total_votes += vote_count
+
+        # Calculate percentage
+        pct = (vote_count / total_votes * 100) if total_votes else 0.0
         results_list.append({
             'candidate_id': cid,
             'name': cand.get('name'),
-            'votes': votes,
+            'votes': vote_count,
             'percentage': pct
         })
 
-    # Also include any candidate_ids that appeared in DB but not in candidate list
-    for cid, votes in counts.items():
+    # Get eligible voters count
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("SELECT COUNT(*) FROM voter_election_status WHERE election_id=? AND status='active'", 
+             (found.get('election_id'),))
+    eligible_voters = c.fetchone()[0]
+    conn.close()
+
+    turnout = (total_votes / eligible_voters * 100) if eligible_voters else 0.0
+
+    # Add any write-in candidates that weren't in original candidate list
+    for cid in candidate_votes.keys():
         if not any(r['candidate_id'] == cid for r in results_list):
-            pct = (votes / total_votes * 100) if total_votes else 0.0
+            encrypted_votes = candidate_votes[cid]
+            if encrypted_votes:
+                sum_votes = encrypted_votes[0]
+                for vote in encrypted_votes[1:]:
+                    sum_votes += vote
+                try:
+                    vote_count = private_key.decrypt(sum_votes)
+                except Exception:
+                    vote_count = 0
+            else:
+                vote_count = 0
+                
+            pct = (vote_count / total_votes * 100) if total_votes else 0.0
             results_list.append({
                 'candidate_id': cid,
-                'name': cand_map.get(cid, cid),
-                'votes': votes,
+                'name': cand_map.get(cid, f"Write-in {cid}"),
+                'votes': vote_count,
                 'percentage': pct
             })
 

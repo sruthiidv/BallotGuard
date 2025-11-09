@@ -1,7 +1,8 @@
 import json
 import base64
-from cryptography.hazmat.primitives.asymmetric import rsa, padding
-from cryptography.hazmat.primitives import hashes, serialization
+from Crypto.PublicKey import RSA
+from Crypto.Signature import pss
+from Crypto.Hash import SHA256
 
 def canonical_json_bytes(obj: dict) -> bytes:
     """
@@ -26,22 +27,23 @@ def verify_rsa_signature(message_obj: dict, sig_b64: str, pubkey_pem_b64: str) -
         pubkey_pem = base64.b64decode(pubkey_pem_b64)
         signature = base64.b64decode(sig_b64)
         
-        # Load RSA public key
-        pk = serialization.load_pem_public_key(pubkey_pem)
+        # Load RSA public key using PyCrypto
+        pubkey = RSA.import_key(pubkey_pem)
         
         # Canonical JSON bytes
         msg_bytes = canonical_json_bytes(message_obj)
         
-        # Verify using RSA-PSS + SHA256
-        pk.verify(
-            signature,
-            msg_bytes,
-            padding.PSS(
-                mgf=padding.MGF1(hashes.SHA256()),
-                salt_length=padding.PSS.MAX_LENGTH
-            ),
-            hashes.SHA256()
-        )
-        return True
-    except Exception:
+        # Create SHA256 hash of message
+        h = SHA256.new(msg_bytes)
+        
+        # Verify using RSA-PSS
+        verifier = pss.new(pubkey)
+        try:
+            verifier.verify(h, signature)
+            return True
+        except (ValueError, TypeError):
+            return False
+            
+    except Exception as e:
+        print(f"Signature verification error: {str(e)}")
         return False

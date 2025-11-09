@@ -124,70 +124,52 @@ class MainMenuFrame(ctk.CTkFrame):
         container = ctk.CTkFrame(scrollable)
         container.pack(expand=True)
 
-        # Title with icon placeholder, centered
-        title_frame = ctk.CTkFrame(container)
-        title_frame.pack(pady=40, padx=40)
+        # Welcome message frame
+        welcome_frame = ctk.CTkFrame(container)
+        welcome_frame.pack(pady=40, padx=40)
 
-        # App icon placeholder (centered)
-        icon_label = ctk.CTkLabel(
-            title_frame,
-            text="🗳️",
-            font=ctk.CTkFont(size=60)
+        # Create a centered logo container
+        logo_container = ctk.CTkFrame(welcome_frame, fg_color="transparent")
+        logo_container.pack(pady=(20, 20), expand=True)
+        
+        # Logo frame with ballot box icon
+        logo_frame = ctk.CTkFrame(logo_container, fg_color="transparent")
+        logo_frame.pack()
+        
+        # Large ballot box icon
+        logo_label = ctk.CTkLabel(
+            logo_frame,
+            text="🗳️",  # Ballot box emoji
+            font=ctk.CTkFont(size=120)  # Large icon size
         )
-        icon_label.pack(pady=10)
+        logo_label.pack(pady=20)
 
-        # App title (centered)
+        # App title
         title_label = ctk.CTkLabel(
-            title_frame,
+            welcome_frame,
             text="BallotGuard",
-            font=ctk.CTkFont(size=32, weight="bold")
+            font=ctk.CTkFont(size=48, weight="bold")  # Larger font for main title
         )
-        title_label.pack(pady=10)
+        title_label.pack(pady=(0, 10))
 
+        # App subtitle
         subtitle_label = ctk.CTkLabel(
-            title_frame,
+            welcome_frame,
             text="Secure Digital Voting System",
-            font=ctk.CTkFont(size=16)
+            font=ctk.CTkFont(size=20)  # Consistent subtitle size
         )
-        subtitle_label.pack()
+        subtitle_label.pack(pady=10)
 
-        # Role selection
-        role_frame = ctk.CTkFrame(container)
-        role_frame.pack(pady=40, padx=40)
-
-        role_title = ctk.CTkLabel(
-            role_frame,
-            text="Select Your Role",
-            font=ctk.CTkFont(size=20, weight="bold")
-        )
-        role_title.pack(pady=20)
-
-        # Centered button frame
-        button_frame = ctk.CTkFrame(role_frame)
-        button_frame.pack(pady=10, padx=10)
-        button_width = 320
-        button_height = 56
-
-        # All buttons same width/height, centered
-        voter_btn = ctk.CTkButton(
-            button_frame,
-            text="👤 Voter",
-            font=ctk.CTkFont(size=16),
-            width=button_width,
-            height=button_height,
+        # Enter button with clear call to action
+        enter_btn = ctk.CTkButton(
+            welcome_frame,
+            text="�️ Start Voting",
+            font=ctk.CTkFont(size=18, weight="bold"),
+            width=320,
+            height=56,
             command=self.select_voter_role
         )
-        voter_btn.pack(pady=8)
-
-        admin_btn = ctk.CTkButton(
-            button_frame,
-            text="👨‍💼 Admin",
-            font=ctk.CTkFont(size=16),
-            width=button_width,
-            height=button_height,
-            command=self.select_admin_role
-        )
-        admin_btn.pack(pady=8)
+        enter_btn.pack(pady=30)
 
     
     def select_voter_role(self):
@@ -1037,9 +1019,13 @@ class VotingInterfaceFrame(ctk.CTkFrame):
         )
         self.election_info.pack()
         
-        # Voting form
-        voting_frame = ctk.CTkFrame(self)
-        voting_frame.pack(pady=20, padx=20, fill="both", expand=True)
+        # Main scrollable container
+        main_container = ctk.CTkScrollableFrame(self)
+        main_container.pack(pady=20, padx=20, fill="both", expand=True)
+        
+        # Voting form inside scrollable container
+        voting_frame = ctk.CTkFrame(main_container, fg_color="transparent")
+        voting_frame.pack(fill="both", expand=True)
         
         candidates_label = ctk.CTkLabel(
             voting_frame,
@@ -1048,28 +1034,32 @@ class VotingInterfaceFrame(ctk.CTkFrame):
         )
         candidates_label.pack(pady=20)
         
-        # Candidate selection will be populated dynamically
-        self.candidates_frame = ctk.CTkFrame(voting_frame)
+        # Candidates frame with better spacing
+        self.candidates_frame = ctk.CTkFrame(voting_frame, fg_color="transparent")
         self.candidates_frame.pack(pady=10, fill="both", expand=True)
+        
+        # Bottom buttons container (outside scrollable area)
+        button_container = ctk.CTkFrame(self, fg_color="transparent")
+        button_container.pack(side="bottom", fill="x", pady=20, padx=20)
         
         # Submit vote button
         self.vote_btn = ctk.CTkButton(
-            voting_frame,
+            button_container,
             text="Submit Vote",
-            font=ctk.CTkFont(size=16),
+            font=ctk.CTkFont(size=16, weight="bold"),
             height=50,
             command=self.submit_vote,
             state="disabled"
         )
-        self.vote_btn.pack(pady=20, fill="x")
+        self.vote_btn.pack(pady=(0, 10), fill="x")
         
         # Back button
         back_btn = ctk.CTkButton(
-            self,
+            button_container,
             text="← Back to Verification",
             command=lambda: self.parent.show_frame("FaceVerification")
         )
-        back_btn.pack(pady=20)
+        back_btn.pack(fill="x")
         
         self.selected_candidate = None
     
@@ -1104,14 +1094,88 @@ class VotingInterfaceFrame(ctk.CTkFrame):
             candidate_frame = ctk.CTkFrame(self.candidates_frame)
             candidate_frame.pack(pady=5, padx=10, fill="x")
             self.candidate_id_map[str(idx)] = candidate.get('candidate_id', '')
+            # Create candidate card with more details
+            candidate_card = ctk.CTkFrame(candidate_frame)
+            candidate_card.pack(pady=5, padx=10, fill="x")
+
+            # Updated party symbols with Indian political parties
+            party_symbols = {
+                "BJP": "🌸",         # Lotus
+                "INC": "✋",         # Hand
+                "AAP": "🧹",         # Broom
+                "BSP": "�",         # Elephant
+                "CPI": "🌾",         # Ears of Corn
+                "TMC": "🌿",         # Grass flower and leaves
+                "Independent": "⭐",  # Star
+                "": "🗳️"            # Default ballot box
+            }
+
+            # Get party and its symbol
+            party = candidate.get('party', 'Independent')
+            symbol = party_symbols.get(party, "🗳️")
+
+            # Create grid layout for better alignment
+            layout_frame = ctk.CTkFrame(candidate_card)
+            layout_frame.pack(pady=10, padx=10, fill="x")
+            layout_frame.grid_columnconfigure(2, weight=1)  # Make name column expandable
+
+            # Party symbol on the left - centered vertically and horizontally
+            symbol_frame = ctk.CTkFrame(layout_frame, fg_color="transparent", width=60, height=60)
+            symbol_frame.grid(row=0, column=0, padx=(10, 15))
+            symbol_frame.grid_propagate(False)  # Force fixed size
+            
+            symbol_label = ctk.CTkLabel(
+                symbol_frame,
+                text=symbol,
+                font=ctk.CTkFont(size=32),
+                width=60,
+                height=60
+            )
+            symbol_label.place(relx=0.5, rely=0.5, anchor="center")  # Center in frame
+
+            # Radio button - centered
             radio_btn = ctk.CTkRadioButton(
-                candidate_frame,
-                text=f"{candidate.get('name', 'Unknown')} ({candidate.get('party', 'Independent')})",
+                layout_frame,
+                text="",
                 variable=self.candidate_var,
                 value=str(idx),
                 command=self.on_candidate_selected
             )
-            radio_btn.pack(pady=10, anchor="w")
+            radio_btn.grid(row=0, column=1, padx=(0, 15))
+
+            # Candidate details frame
+            details_frame = ctk.CTkFrame(layout_frame, fg_color="transparent")
+            details_frame.grid(row=0, column=2, sticky="ew")
+
+            # Candidate name
+            name_label = ctk.CTkLabel(
+                details_frame,
+                text=candidate.get('name', 'Unknown'),
+                font=ctk.CTkFont(size=16, weight="bold"),
+                anchor="w"
+            )
+            name_label.pack(fill="x")
+
+            # Party name
+            party_label = ctk.CTkLabel(
+                details_frame,
+                text=party,
+                font=ctk.CTkFont(size=12),
+                text_color="gray",
+                anchor="w"
+            )
+            party_label.pack(fill="x")
+
+            # Optional: Add candidate info/platform
+            if candidate.get('info'):
+                info_label = ctk.CTkLabel(
+                    candidate_card,
+                    text=candidate.get('info', ''),
+                    font=ctk.CTkFont(size=12),
+                    justify="left",
+                    wraplength=400
+                )
+                info_label.pack(pady=(0, 10), padx=40, anchor="w")
     
     def on_candidate_selected(self):
         """Enable vote button when candidate is selected"""
@@ -1166,18 +1230,36 @@ class VotingInterfaceFrame(ctk.CTkFrame):
                     import base64
                     server_sig = result.get("server_sig")
                     receipt = result.get("receipt")
-                    # Only verify the canonical payload fields, not the whole receipt
+                    
+                    # Debug receipt data
+                    print("Receipt:", receipt)
+                    
+                    # Verify receipt has required fields
+                    required_fields = ["vote_id", "election_id", "ledger_index", "block_hash", "sig"]
+                    if not all(field in receipt for field in required_fields):
+                        messagebox.showerror("Vote Failed", "Invalid receipt format from server")
+                        self.vote_btn.configure(state="normal", text="Submit Vote")
+                        return
+                        
+                    # Only verify the canonical payload fields
                     payload = {
                         "vote_id": receipt["vote_id"],
                         "election_id": receipt["election_id"],
                         "ledger_index": receipt["ledger_index"],
                         "block_hash": receipt["block_hash"]
                     }
-                    rsa_pub_pem_b64 = base64.b64encode(RSA_PUB_PEM.encode()).decode()
-                    if not verify_rsa_signature(payload, receipt["sig"], rsa_pub_pem_b64):
-                        messagebox.showerror("Vote Failed", "Server signature verification failed!")
+                    
+                    try:
+                        rsa_pub_pem_b64 = base64.b64encode(RSA_PUB_PEM.encode()).decode()
+                        if not verify_rsa_signature(payload, receipt["sig"], rsa_pub_pem_b64):
+                            messagebox.showerror("Vote Failed", "Server signature verification failed!")
+                            self.vote_btn.configure(state="normal", text="Submit Vote")
+                            return
+                    except Exception as e:
+                        messagebox.showerror("Vote Failed", f"Signature verification error: {str(e)}")
                         self.vote_btn.configure(state="normal", text="Submit Vote")
                         return
+                        
                     ledger_index = result.get("ledger_index")
                     block_hash = result.get("block_hash")
                     voter_id = self.parent.user_data.get("verified_voter_id")
