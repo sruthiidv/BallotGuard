@@ -1,0 +1,8 @@
+{
+  "n": "<PAILLIER_N>",
+  "p": "<PAILLIER_P>",
+  "q": "<PAILLIER_Q>",
+  "lambda": "<LAMBDA>",
+  "mu": "<MU>",
+  "notes": "This is a TEMPLATE file placed under server/keys. Replace with your real private key file. Do NOT commit the real private key."
+}

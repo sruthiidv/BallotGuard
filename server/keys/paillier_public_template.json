@@ -1,0 +1,5 @@
+{
+  "n": "<PAILLIER_N>",
+  "g": "<PAILLIER_G>",
+  "notes": "This is a TEMPLATE public key placed under server/keys. Public keys are okay to store in repos, but private keys must not be committed."
+}

@@ -1,0 +1,74 @@
+from pathlib import Path
+
+# Path to your key folder
+KEYS_DIR = Path(__file__).resolve().parent / "keys"
+
+
+# Load PEM keys into memory
+RECEIPT_RSA_PRIV_PEM ="""-----BEGIN PRIVATE KEY-----
+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
+WstmEr86BCRfwZUY/e6ayQ==
+-----END PRIVATE KEY-----"""
+RECEIPT_RSA_PUB_PEM  = """-----BEGIN PUBLIC KEY-----
+MIIBojANBgkqhkiG9w0BAQEFAAOCAY8AMIIBigKCAYEAvGMwanQmOX4mWAWtNqCB
+foSs8bSH/PrSOlL0bijFhMGK43DjQY0G65YNDRqMM0nIAtmR/ZcYN3a9oztixKOd
+cmAig3hpRNMLrl9J1YQM2kjiiU55D+/HxuoryvKFpUzV0UvPz+GilSJwl/aGFxlp
+ZxUO5Xq6upNTlX3kB67Fvr7no7H6weTHauEPQ9s60F/Zv5mBLjHQUeT0dDpHDmQl
+bdWIuFTDdL3UUD3CfvpwLHfHFsH7U3ylY5Ji9/FJDZtAA1xV2FlYghGJJ18MlJAV
+2dzJKicDX9FZvf7a2uCNoTxPp9LE+r0FUZtk1xs8veHqSm1YBzu8C/5Mm9rHcwVR
+IRqnIjPWaVnbyN6VR9UJiTe9Umr+AXg5fREZa9liq0B72XoRzxtDokRD/SM9N5KO
+pRsEB3mzmjQLiZqSI8k8kDK6C+8Ti4Vok6ugSwQowtG2w6t8dw3b82/sCkGpDLJA
+UYIwzSo8OSQrCObSfmOec2xcSkn8AV5K2AYLBRE0EMJNAgMBAAE=
+-----END PUBLIC KEY-----"""
+
+# Load Paillier keys (public and private) from JSON
+import json
+paillier_pub_json = json.loads((KEYS_DIR / "paillier_public.json").read_text(encoding="utf-8"))
+paillier_priv_json = json.loads((KEYS_DIR / "paillier_private.json").read_text(encoding="utf-8"))
+
+# Paillier public key (n)
+PAILLIER_N = paillier_pub_json["n"]
+# Paillier private key (p, q)
+PAILLIER_P = paillier_priv_json["p"]
+PAILLIER_Q = paillier_priv_json["q"]
+
+# Example usage in server:
+# from phe import paillier
+# paillier_pubkey = paillier.PaillierPublicKey(PAILLIER_N)
+# paillier_privkey = paillier.PaillierPrivateKey(paillier_pubkey, PAILLIER_P, PAILLIER_Q)
