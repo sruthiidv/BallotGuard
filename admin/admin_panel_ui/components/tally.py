@@ -24,47 +24,29 @@ class TallyComponent(ttk.Frame):
         self.load_elections()
 
     def setup_ui(self):
-        # Configure for dark theme to match admin panel
-        BG_PRIMARY = "#0f1419"
-        BG_SECONDARY = "#1a202c"
-        BG_TERTIARY = "#2d3748"
-        ACCENT_BLUE = "#3b82f6"
-        SUCCESS_COLOR = "#10b981"
-        TEXT_PRIMARY = "#f1f5f9"
-        TEXT_SECONDARY = "#cbd5e1"
-        
-        self.configure(style='TFrame')
-        
         self.style = ttk.Style()
         
-        # Custom styles matching main panel
-        self.style.configure("Tally.TFrame", background=BG_PRIMARY)
-        self.style.configure("Tally.Title.TLabel", 
-                           font=("Segoe UI", 18, "bold"), 
-                           foreground=ACCENT_BLUE,
-                           background=BG_PRIMARY)
-        self.style.configure("Tally.Stats.TLabel", 
-                           font=("Segoe UI", 11),
-                           foreground=TEXT_SECONDARY,
-                           background=BG_SECONDARY)
-        self.style.configure("Tally.Winner.TLabel",
-                           font=("Segoe UI", 16, "bold"),
-                           foreground=SUCCESS_COLOR,
-                           background=BG_SECONDARY)
+        # Custom styles
+        self.style.configure("Title.TLabel", 
+                           font=("Segoe UI", 16, "bold"), 
+                           foreground="#2c3e50")
         
-        # Main container with padding
-        main_container = ttk.Frame(self, style='Tally.TFrame')
-        main_container.pack(fill=tk.BOTH, expand=True, padx=15, pady=15)
+        self.style.configure("Stats.TLabel", 
+                           font=("Segoe UI", 12),
+                           foreground="#1e40af")
+                           
+        self.style.configure("Winner.TLabel",
+                           font=("Segoe UI", 14, "bold"),
+                           foreground="#059669")
         
         # Title
-        title_label = ttk.Label(main_container, 
+        ttk.Label(self, 
                  text="🗳️ Election Results & Blockchain Verification",
-                 style="Tally.Title.TLabel")
-        title_label.pack(pady=(0, 20))
+                 style="Title.TLabel").pack(pady=(0, 20))
         
-        # Election Selector with better styling
-        selector_frame = ttk.LabelFrame(main_container, text="Select Election", padding=15)
-        selector_frame.pack(fill=tk.X, pady=(0, 15))
+        # Election Selector
+        selector_frame = ttk.LabelFrame(self, text="Select Election", padding=10)
+        selector_frame.pack(fill=tk.X, padx=10, pady=5)
         
         selection_container = ttk.Frame(selector_frame)
         selection_container.pack(fill=tk.X, expand=True)
@@ -72,76 +54,57 @@ class TallyComponent(ttk.Frame):
         self.election_var = tk.StringVar()
         self.election_combobox = ttk.Combobox(selection_container, 
                                              textvariable=self.election_var,
-                                             font=("Segoe UI", 11),
-                                             state='readonly')
-        self.election_combobox.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 10), ipady=5)
+                                             font=("Segoe UI", 11))
+        self.election_combobox.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 10))
         self.election_combobox.bind('<<ComboboxSelected>>', self.on_election_selected)
         
         refresh_btn = ttk.Button(selection_container,
                                text="🔄 Refresh",
-                               command=self.refresh_data,
-                               style='Primary.TButton')
-        refresh_btn.pack(side=tk.RIGHT, ipadx=10, ipady=5)
+                               command=self.refresh_data)
+        refresh_btn.pack(side=tk.RIGHT)
 
         # Results Display
-        self.results_frame = ttk.LabelFrame(main_container, text="Election Results", padding=15)
-        self.results_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
+        self.results_frame = ttk.LabelFrame(self, text="Election Results", padding=15)
+        self.results_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
         
         # Winner Display
         self.winner_frame = ttk.Frame(self.results_frame)
         self.winner_frame.pack(fill=tk.X, pady=(0, 15))
         
-        self.winner_label = ttk.Label(self.winner_frame, text="Select an election to view results", 
-                                     style="Tally.Winner.TLabel")
+        self.winner_label = ttk.Label(self.winner_frame, text="", style="Winner.TLabel")
         self.winner_label.pack()
 
-        # Stats Frame with better layout
-        stats_outer_frame = ttk.Frame(self.results_frame)
-        stats_outer_frame.pack(fill=tk.X, pady=10)
-        
-        stats_frame = ttk.Frame(stats_outer_frame)
-        stats_frame.pack()
+        # Stats Frame
+        stats_frame = ttk.Frame(self.results_frame)
+        stats_frame.pack(fill=tk.X, pady=10)
 
-        self.total_voters_label = ttk.Label(stats_frame, text="Total Eligible Voters: -", 
-                                           style="Tally.Stats.TLabel")
-        self.total_voters_label.pack(side=tk.LEFT, padx=15)
+        self.total_voters_label = ttk.Label(stats_frame, text="Total Eligible Voters: -")
+        self.total_voters_label.pack(side=tk.LEFT, padx=10)
 
-        self.votes_cast_label = ttk.Label(stats_frame, text="Votes Cast: -", 
-                                         style="Tally.Stats.TLabel")
-        self.votes_cast_label.pack(side=tk.LEFT, padx=15)
+        self.votes_cast_label = ttk.Label(stats_frame, text="Votes Cast: -")
+        self.votes_cast_label.pack(side=tk.LEFT, padx=10)
 
-        self.turnout_label = ttk.Label(stats_frame, text="Turnout: -", 
-                                      style="Tally.Stats.TLabel")
-        self.turnout_label.pack(side=tk.LEFT, padx=15)
+        self.turnout_label = ttk.Label(stats_frame, text="Turnout: -")
+        self.turnout_label.pack(side=tk.LEFT, padx=10)
 
         # Blockchain Status Frame
-        self.blockchain_frame = ttk.LabelFrame(self.results_frame, text="Blockchain Status", padding=12)
+        self.blockchain_frame = ttk.LabelFrame(self.results_frame, text="Blockchain Status", padding=10)
         self.blockchain_frame.pack(fill=tk.X, pady=10)
 
-        self.blockchain_status_label = ttk.Label(self.blockchain_frame, text="Not verified", 
-                                                style="Tally.Stats.TLabel")
+        self.blockchain_status_label = ttk.Label(self.blockchain_frame, text="Not verified")
         self.blockchain_status_label.pack(side=tk.LEFT, padx=10)
 
-        verify_button = ttk.Button(self.blockchain_frame, text="✓ Verify Blockchain", 
-                                  command=self.verify_blockchain,
-                                  style='Primary.TButton')
-        verify_button.pack(side=tk.RIGHT, padx=10, ipadx=10, ipady=5)
+        verify_button = ttk.Button(self.blockchain_frame, text="Verify Blockchain", command=self.verify_blockchain)
+        verify_button.pack(side=tk.RIGHT, padx=10)
 
         # Candidates Results Frame
         self.candidates_frame = ttk.Frame(self.results_frame)
         self.candidates_frame.pack(fill=tk.BOTH, expand=True, pady=10)
 
-        # Paillier Info with better styling
-        info_frame = ttk.Frame(main_container)
-        info_frame.pack(fill=tk.X, pady=(10, 0))
-        
-        ttk.Label(info_frame, 
-                 text="🔒 Results are computed using Paillier homomorphic encryption. Only the final tally is decrypted, preserving vote privacy.",
-                 font=("Segoe UI", 10),
-                 foreground="#60a5fa",
-                 background=BG_PRIMARY,
-                 wraplength=800,
-                 justify="center").pack(pady=10)
+        # Paillier Info
+        ttk.Label(self.results_frame, 
+                 text="🔒 Results are computed using Paillier homomorphic encryption.\nOnly the final tally is decrypted, preserving vote privacy.",
+                 foreground="navy").pack(pady=10)
 
     def load_elections(self):
         try:
@@ -149,17 +112,8 @@ class TallyComponent(ttk.Frame):
             if not success:
                 messagebox.showerror("Error", f"Failed to load elections: {elections}")
                 return
-            
-            election_list = [f"{e['name']} ({e['election_id']}) - {e['status']}" for e in elections]
-            self.election_combobox['values'] = election_list
-            
-            # Auto-select first election if available
-            if election_list:
-                self.election_combobox.current(0)
-                # Trigger the selection event to load results
-                election_id = election_list[0].split('(')[1].split(')')[0]
-                self.selected_election = election_id
-                self.load_results(election_id)
+            self.election_combobox['values'] = [f"{e['name']} ({e['election_id']}) - {e['status']}" 
+                                              for e in elections]
         except Exception as e:
             messagebox.showerror("Error", f"Failed to load elections: {str(e)}")
 

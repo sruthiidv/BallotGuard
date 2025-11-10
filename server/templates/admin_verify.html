@@ -253,6 +253,57 @@
         font-weight: bold;
         color: #2c3e50;
       }
+      .candidate-result {
+        background: white;
+        padding: 15px;
+        margin: 10px 0;
+        border-radius: 6px;
+        border-left: 4px solid #64b5f6;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+      }
+      .candidate-result.winner {
+        border-left-color: #4caf50;
+        background: linear-gradient(90deg, #f1f8e9 0%, #ffffff 100%);
+      }
+      .candidate-name {
+        font-size: 18px;
+        font-weight: bold;
+        color: #2c3e50;
+        margin-bottom: 8px;
+      }
+      .candidate-votes {
+        font-size: 16px;
+        color: #666;
+        margin-bottom: 5px;
+      }
+      .candidate-percentage {
+        font-size: 14px;
+        color: #1565c0;
+        font-weight: bold;
+      }
+      .progress-bar {
+        width: 100%;
+        height: 24px;
+        background: #e0e0e0;
+        border-radius: 12px;
+        overflow: hidden;
+        margin: 8px 0;
+      }
+      .progress-fill {
+        height: 100%;
+        background: linear-gradient(90deg, #64b5f6 0%, #1e88e5 100%);
+        transition: width 0.5s ease;
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        padding-right: 10px;
+        color: white;
+        font-weight: bold;
+        font-size: 13px;
+      }
+      .progress-fill.winner {
+        background: linear-gradient(90deg, #81c784 0%, #43a047 100%);
+      }
     </style>
   </head>
   <body>
@@ -285,6 +336,59 @@
           <div class="stat-title">Chain Status</div>
           <div class="stat-value" id="chain-status">-</div>
         </div>
+      </div>
+
+      <!-- Election Results Section -->
+      <div
+        class="blockchain-container"
+        id="results-container"
+        style="display: none"
+      >
+        <h3>🗳️ Election Results (Homomorphic Tallying)</h3>
+        <div
+          style="
+            background: #e3f2fd;
+            padding: 15px;
+            border-radius: 6px;
+            margin-bottom: 20px;
+          "
+        >
+          <p style="margin: 0; color: #1565c0; font-size: 14px">
+            🔒 <strong>Privacy-Preserving Tallying:</strong> Votes are encrypted
+            using Paillier homomorphic encryption. The tally is computed
+            directly on encrypted votes without ever decrypting individual
+            ballots, ensuring complete voter privacy. Only the final sum is
+            decrypted to reveal results.
+          </p>
+        </div>
+
+        <div class="stats" style="margin-bottom: 20px">
+          <div class="stat-box">
+            <div class="stat-title">Eligible Voters</div>
+            <div class="stat-value" id="eligible-voters">-</div>
+          </div>
+          <div class="stat-box">
+            <div class="stat-title">Votes Cast</div>
+            <div class="stat-value" id="votes-cast">-</div>
+          </div>
+          <div class="stat-box">
+            <div class="stat-title">Voter Turnout</div>
+            <div class="stat-value" id="turnout">-</div>
+          </div>
+        </div>
+
+        <div
+          id="winner-display"
+          style="
+            text-align: center;
+            padding: 20px;
+            margin-bottom: 20px;
+            border-radius: 8px;
+            display: none;
+          "
+        ></div>
+
+        <div id="results-list"></div>
       </div>
 
       <div id="status-message" class="status-box">Verifying blockchain...</div>
@@ -367,6 +471,7 @@
         currentElectionId = select.value;
         if (currentElectionId) {
           verifyBlockchain();
+          loadElectionResults();
           // Enable buttons
           document.querySelector(".btn-tamper").disabled = false;
           document.querySelector(".btn-verify").disabled = false;
@@ -378,6 +483,7 @@
           document.getElementById("total-blocks").textContent = "0";
           document.getElementById("total-votes").textContent = "0";
           document.getElementById("chain-status").textContent = "-";
+          document.getElementById("results-container").style.display = "none";
           document.querySelector(".btn-tamper").disabled = true;
           document.querySelector(".btn-verify").disabled = true;
         }
@@ -385,6 +491,104 @@
 
       // Load elections on page load
       loadElections();
+
+      function loadElectionResults() {
+        if (!currentElectionId) return;
+
+        fetch(`/elections/${currentElectionId}/results`)
+          .then((response) => response.json())
+          .then((data) => {
+            const resultsContainer =
+              document.getElementById("results-container");
+            resultsContainer.style.display = "block";
+
+            // Update stats
+            document.getElementById("eligible-voters").textContent =
+              data.eligible_voters || 0;
+            document.getElementById("votes-cast").textContent =
+              data.total_votes || 0;
+            document.getElementById("turnout").textContent =
+              data.turnout_percentage
+                ? `${data.turnout_percentage.toFixed(1)}%`
+                : "0%";
+
+            // Display winner
+            const winnerDisplay = document.getElementById("winner-display");
+            if (data.winner) {
+              winnerDisplay.style.display = "block";
+              if (data.winner.tie) {
+                const names = data.winner.winners.map((w) => w.name).join(", ");
+                winnerDisplay.innerHTML = `
+                  <div style="background: #fff3cd; border: 2px solid #ffc107; color: #856404;">
+                    <h3 style="margin: 0 0 10px 0;">⚠️ TIE RESULT</h3>
+                    <p style="margin: 0; font-size: 16px;">Between: ${names}</p>
+                    <p style="margin: 5px 0 0 0; font-size: 14px;">Each with ${data.winner.winners[0].votes} votes</p>
+                  </div>
+                `;
+              } else {
+                winnerDisplay.innerHTML = `
+                  <div style="background: #e8f5e9; border: 2px solid #4caf50; color: #2e7d32;">
+                    <h3 style="margin: 0 0 10px 0;">🏆 WINNER</h3>
+                    <p style="margin: 0; font-size: 20px; font-weight: bold;">${
+                      data.winner.name
+                    }</p>
+                    <p style="margin: 5px 0 0 0; font-size: 16px;">${
+                      data.winner.votes
+                    } votes (${data.winner.percentage.toFixed(1)}%)</p>
+                  </div>
+                `;
+              }
+            } else {
+              winnerDisplay.style.display = "none";
+            }
+
+            // Display candidate results
+            const resultsList = document.getElementById("results-list");
+            resultsList.innerHTML = "";
+
+            if (data.results && data.results.length > 0) {
+              const maxVotes = Math.max(...data.results.map((r) => r.votes));
+
+              data.results.forEach((candidate) => {
+                const isWinner = candidate.votes === maxVotes && maxVotes > 0;
+                const resultDiv = document.createElement("div");
+                resultDiv.className = `candidate-result ${
+                  isWinner ? "winner" : ""
+                }`;
+
+                resultDiv.innerHTML = `
+                  <div class="candidate-name">
+                    ${isWinner ? "🏆 " : ""}${
+                  candidate.name || candidate.candidate_id
+                }
+                    ${
+                      candidate.party
+                        ? `<span style="color: #666; font-size: 14px; font-weight: normal;"> (${candidate.party})</span>`
+                        : ""
+                    }
+                  </div>
+                  <div class="candidate-votes">Votes: ${candidate.votes}</div>
+                  <div class="progress-bar">
+                    <div class="progress-fill ${
+                      isWinner ? "winner" : ""
+                    }" style="width: ${candidate.percentage}%">
+                      ${candidate.percentage.toFixed(1)}%
+                    </div>
+                  </div>
+                `;
+
+                resultsList.appendChild(resultDiv);
+              });
+            } else {
+              resultsList.innerHTML =
+                '<p style="text-align: center; color: #666;">No votes cast yet</p>';
+            }
+          })
+          .catch((error) => {
+            console.error("Error loading results:", error);
+            document.getElementById("results-container").style.display = "none";
+          });
+      }
 
       function formatTimestamp(ts) {
         return new Date(ts * 1000).toLocaleString();

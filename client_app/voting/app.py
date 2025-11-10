@@ -221,7 +221,7 @@ class VoterMenuFrame(ctk.CTkFrame):
         )
         top_back_btn.pack(pady=(20, 0), anchor="w", padx=20)
 
-        # Header
+        # Header with Refresh button
         header_frame = ctk.CTkFrame(self)
         header_frame.pack(pady=20, padx=20, fill="x")
 
@@ -230,7 +230,18 @@ class VoterMenuFrame(ctk.CTkFrame):
             text="Available Elections",
             font=ctk.CTkFont(size=24, weight="bold")
         )
-        title_label.pack(pady=20)
+        title_label.pack(side="left", pady=20)
+
+        # Refresh button
+        refresh_btn = ctk.CTkButton(
+            header_frame,
+            text="🔄 Refresh",
+            font=ctk.CTkFont(size=14),
+            width=120,
+            height=40,
+            command=self.load_elections
+        )
+        refresh_btn.pack(side="right", pady=20, padx=20)
 
         # Elections list (scrollable)
         self.elections_frame = ctk.CTkScrollableFrame(self, height=400)
@@ -308,10 +319,8 @@ class VoterMenuFrame(ctk.CTkFrame):
             button_frame = ctk.CTkFrame(election_card)
             button_frame.pack(pady=10, fill="x")
             
-            # Check if already voted
-            already_voted = self.check_if_already_voted(election.get("election_id"))
-            
-            if already_voted:
+            # Handle different voter statuses for this election
+            if voter_status == "voted":
                 voted_btn = ctk.CTkButton(
                     button_frame,
                     text="✓ Already Voted",
@@ -344,7 +353,8 @@ class VoterMenuFrame(ctk.CTkFrame):
                     button_frame,
                     text="Pending Approval",
                     width=120,
-                    state="disabled"
+                    state="disabled",
+                    fg_color="orange"
                 )
                 status_btn.pack(side="left", padx=5)
                 
@@ -356,31 +366,54 @@ class VoterMenuFrame(ctk.CTkFrame):
                     command=lambda e=election: self.vote_in_election(e)
                 )
                 vote_btn.pack(side="left", padx=5)
+            
+            elif voter_status == "blocked":
+                blocked_btn = ctk.CTkButton(
+                    button_frame,
+                    text="Blocked",
+                    width=100,
+                    state="disabled",
+                    fg_color="red"
+                )
+                blocked_btn.pack(side="left", padx=5)
     
     def check_voter_status(self, election_id):
-        """Check voter registration status for this election"""
-        # Prefer authoritative server status when we have a voter_id
+        """Check voter registration status for this specific election"""
         voter_id = self.parent.user_data.get("voter_id")
         if not voter_id:
             return "not_registered"
 
         try:
-            status, err = api_client.get_voter_status(voter_id)
+            # Check local registration cache first to see if user actually registered for THIS election
+            key = f"{election_id}_{voter_id}"
+            locally_registered = key in self.parent.user_data.get("registrations", {})
+            
+            # Use the new per-election status check endpoint
+            result, err = api_client.get_voter_election_status(voter_id, election_id)
             if err:
                 # Fall back to local cache if server is unreachable
-                key = f"{election_id}_{voter_id}"
-                if key in self.parent.user_data.get("registrations", {}):
+                if locally_registered:
                     reg_data = self.parent.user_data["registrations"][key]
                     return reg_data.get("status", "not_registered")
                 return "not_registered"
 
-            # Normalize server status into expected values
-            if status == 'active':
-                return 'approved'
-            elif status == 'pending':
-                return 'pending'
+            # Check the election-specific approval
+            if result.get("approved"):
+                if result.get("already_voted"):
+                    return "voted"  # Already voted in this election
+                return "approved"
             else:
-                return 'not_registered'
+                reason = result.get("reason", "not_approved_for_election")
+                if reason == "voter_not_found":
+                    return "not_registered"
+                elif reason == "not_approved_for_election":
+                    # Only show "pending" if user actually registered for this election
+                    if locally_registered:
+                        return "pending"  # Registered for THIS election but not approved yet
+                    else:
+                        return "not_registered"  # Never registered for this election
+                else:
+                    return "blocked"
         except Exception:
             # On any error, fall back to local cache
             key = f"{election_id}_{voter_id}"
@@ -743,8 +776,8 @@ class RegistrationFrame(ctk.CTkFrame):
             
             # Prepare registration data for MVP Architecture
             face_encoding = self.parent.user_data.get("face_encoding")
-            # Send to server using API client
-            result, error = api_client.enroll_voter(face_encoding)
+            # Send to server using API client with name
+            result, error = api_client.enroll_voter(face_encoding, name)
             
             if result:
                 voter_id = result.get("voter_id")
@@ -1125,16 +1158,16 @@ class VotingInterfaceFrame(ctk.CTkFrame):
                 "BJP": "🌸",         # Lotus
                 "INC": "✋",         # Hand
                 "AAP": "🧹",         # Broom
-                "BSP": "�",         # Elephant
                 "CPI": "🌾",         # Ears of Corn
                 "TMC": "🌿",         # Grass flower and leaves
                 "Independent": "⭐",  # Star
                 "": "🗳️"            # Default ballot box
             }
 
-            # Get party and its symbol
+            # Get party and its symbol from candidate data
             party = candidate.get('party', 'Independent')
-            symbol = party_symbols.get(party, "🗳️")
+            # Look up symbol from party_symbols dictionary
+            symbol = party_symbols.get(party, party_symbols.get('', '🗳️'))
 
             # Create grid layout for better alignment
             layout_frame = ctk.CTkFrame(candidate_card)

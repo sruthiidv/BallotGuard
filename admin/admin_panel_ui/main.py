@@ -19,6 +19,26 @@ class AdminPanel:
             print("🚀 Initializing BallotGuard Admin Panel...")
             self.api = APIClient()
             self.current_election_id = None
+            self.party_symbols = {}  # Will be loaded from server
+            
+            # Load party symbols from server
+            try:
+                success, symbols = self.api.get_party_symbols()
+                if success:
+                    self.party_symbols = symbols
+                    print(f"✅ Loaded party symbols: {list(symbols.keys())}")
+                else:
+                    print("⚠️ Could not load party symbols from server, using defaults")
+                    self.party_symbols = {
+                        "BJP": "🌸", "INC": "✋", "AAP": "🧹", 
+                        "CPI": "🌾", "TMC": "🌿", "Independent": "⭐", "": "🗳️"
+                    }
+            except Exception as e:
+                print(f"⚠️ Error loading symbols: {e}, using defaults")
+                self.party_symbols = {
+                    "BJP": "🌸", "INC": "✋", "AAP": "🧹", 
+                    "CPI": "🌾", "TMC": "🌿", "Independent": "⭐", "": "🗳️"
+                }
             
             self.app = tk.Tk()
             self.app.title("BallotGuard Admin Panel")
@@ -228,10 +248,27 @@ class AdminPanel:
                                       text="", 
                                       font=("Segoe UI", 14, 'bold'), 
                                       foreground=self.SUCCESS_COLOR)
-            self.winner_label.pack(fill="x", padx=15, pady=(0, 6))
+            self.winner_label.pack(fill="x", padx=15, pady=(0, 10))
 
+            # Action buttons frame
+            action_buttons_frame = tk.Frame(frame, bg=self.BG_PRIMARY)
+            action_buttons_frame.pack(fill="x", padx=15, pady=(0, 12))
+            
+            # Configure grid for equal-width buttons
+            action_buttons_frame.grid_columnconfigure(0, weight=1)
+            action_buttons_frame.grid_columnconfigure(1, weight=1)
+            
+            # Open election button - change from DRAFT to OPEN
+            open_btn = Button(action_buttons_frame, text="🟢 Open Election", 
+                   command=self.open_current_election, 
+                   style='Secondary.TButton')
+            open_btn.grid(row=0, column=0, sticky="ew", padx=(0, 5))
+            
             # End election button - manually close and show results
-            Button(frame, text="⏹️ End Election & Show Results", command=self.end_current_election, style='Danger.TButton').pack(padx=15, pady=(0,12), anchor='e')
+            end_btn = Button(action_buttons_frame, text="⏹️ End Election", 
+                   command=self.end_current_election, 
+                   style='Secondary.TButton')
+            end_btn.grid(row=0, column=1, sticky="ew", padx=(5, 0))
 
             results_frame = Labelframe(frame, text="📊 Live Results", padding=15)
             results_frame.pack(fill="both", expand=True, padx=15, pady=(0, 15))
@@ -362,7 +399,7 @@ class AdminPanel:
             add_cand_btn.pack(fill="x", pady=10)
             Button(add_cand_btn, text="+ Add Candidate", 
                    command=self.add_candidate_field, 
-                   style="Primary.TButton").pack(side="left", padx=0)
+                   style="Secondary.TButton").pack(side="left", padx=0)
             
             # BOTTOM BUTTON AREA - ALWAYS VISIBLE using tk.Frame
             button_area = tk.Frame(main_frame, bg=self.BG_SECONDARY)
@@ -400,11 +437,35 @@ class AdminPanel:
                  foreground=self.ACCENT_BLUE, 
                  background=self.BG_TERTIARY).pack(side="left", padx=8, pady=6)
             
+            # Candidate Name
+            Label(inner, text="Name:", 
+                 font=("Segoe UI", 9), 
+                 foreground=self.TEXT_SECONDARY, 
+                 background=self.BG_TERTIARY).pack(side="left", padx=(0, 3))
+            
             name_var = tk.StringVar()
-            Entry(inner, textvariable=name_var, font=("Segoe UI", 9)).pack(side="left", padx=3, ipady=4, fill="x", expand=True)
+            Entry(inner, textvariable=name_var, font=("Segoe UI", 9), width=20).pack(side="left", padx=3, ipady=4)
+            
+            # Party Dropdown
+            Label(inner, text="Party:", 
+                 font=("Segoe UI", 9), 
+                 foreground=self.TEXT_SECONDARY, 
+                 background=self.BG_TERTIARY).pack(side="left", padx=(10, 3))
             
             party_var = tk.StringVar()
-            Entry(inner, textvariable=party_var, font=("Segoe UI", 9)).pack(side="left", padx=3, ipady=4, fill="x", expand=True)
+            # Create list of party options with symbols
+            party_options = [f"{symbol} {party}" if party else "🗳️ Independent" 
+                           for party, symbol in self.party_symbols.items() if party]
+            party_options.append("🗳️ Independent")  # Always add Independent option
+            
+            party_combo = Combobox(inner, textvariable=party_var, 
+                                  values=party_options,
+                                  state="readonly",
+                                  font=("Segoe UI", 9), 
+                                  width=18)
+            party_combo.pack(side="left", padx=3, ipady=4)
+            # Set default to Independent
+            party_combo.current(len(party_options) - 1)
             
             Button(inner, text="✕", 
                    command=lambda: self.remove_candidate_field(num),
@@ -414,6 +475,7 @@ class AdminPanel:
                 'frame': cand_frame,
                 'name_var': name_var,
                 'party_var': party_var,
+                'party_combo': party_combo,
                 'number': num
             })
             
@@ -460,9 +522,18 @@ class AdminPanel:
             for entry in self.candidate_entries:
                 name = entry['name_var'].get().strip()
                 if name:
+                    # Extract party name from dropdown value (format: "🌸 BJP" or "🗳️ Independent")
+                    party_selection = entry['party_var'].get().strip()
+                    if party_selection:
+                        # Split by space and take the last part (party name)
+                        parts = party_selection.split(' ', 1)
+                        party = parts[1] if len(parts) > 1 else 'Independent'
+                    else:
+                        party = 'Independent'
+                    
                     candidates.append({
                         'name': name,
-                        'party': entry['party_var'].get().strip() or 'Independent'
+                        'party': party
                     })
             
             if len(candidates) < 2:
@@ -551,11 +622,28 @@ class AdminPanel:
                                        foreground=self.SUCCESS_COLOR)
             self.security_status.pack()
             # Voter approvals area
-            voters_frame = Labelframe(frame, text="Voter Approvals", padding=12)
+            voters_frame = Labelframe(frame, text="Voter Approvals (Per-Election)", padding=12)
             voters_frame.pack(fill="x", padx=15, pady=(0, 12))
 
             inner_voters = tk.Frame(voters_frame, bg=self.BG_SECONDARY)
             inner_voters.pack(fill="both", expand=True)
+
+            # Election selector for approval
+            election_select_frame = tk.Frame(inner_voters, bg=self.BG_SECONDARY)
+            election_select_frame.pack(fill="x", pady=(0, 8))
+            
+            Label(election_select_frame, text="Select Election for Approval:", 
+                  font=("Segoe UI", 10, 'bold'), 
+                  foreground=self.TEXT_SECONDARY, 
+                  background=self.BG_SECONDARY).pack(side="left", padx=(0, 10))
+            
+            self.approval_election_var = tk.StringVar()
+            self.approval_election_combo = Combobox(election_select_frame, 
+                                                   textvariable=self.approval_election_var, 
+                                                   state="readonly", 
+                                                   font=("Segoe UI", 9),
+                                                   width=40)
+            self.approval_election_combo.pack(side="left", padx=(0, 10))
 
             # List of pending voters
             self.pending_voters_listbox = tk.Listbox(inner_voters, height=6, font=("Segoe UI", 10))
@@ -565,7 +653,7 @@ class AdminPanel:
             voters_buttons.pack(side="right", fill="y", padx=(8, 0), pady=6)
 
             Button(voters_buttons, text="🔄 Refresh", command=self.refresh_pending_voters, style='Primary.TButton').pack(fill="x", pady=4)
-            Button(voters_buttons, text="✅ Approve Selected", command=self.approve_selected_voter, style='Success.TButton').pack(fill="x", pady=4)
+            Button(voters_buttons, text="✅ Approve for Election", command=self.approve_selected_voter, style='Success.TButton').pack(fill="x", pady=4)
 
             # System log
             log_frame = Labelframe(frame, text="System Log", padding=15)
@@ -633,9 +721,19 @@ class AdminPanel:
             self.results_text.delete('1.0', tk.END)
             
             if ok:
-                self.results_text.insert(tk.END, f"Total: {results.get('total_votes', 0)}\n")
+                self.results_text.insert(tk.END, f"Total Votes: {results.get('total_votes', 0)}\n")
+                self.results_text.insert(tk.END, "=" * 50 + "\n\n")
+                
                 for r in results.get('results', []):
-                    self.results_text.insert(tk.END, f"{r.get('name')}: {r.get('votes', 0)}\n")
+                    name = r.get('name', 'Unknown')
+                    party = r.get('party', '')
+                    votes = r.get('votes', 0)
+                    
+                    # Get symbol for party
+                    symbol = self.party_symbols.get(party, self.party_symbols.get('', '🗳️'))
+                    
+                    # Display with symbol
+                    self.results_text.insert(tk.END, f"{symbol} {name} ({party}): {votes} votes\n")
             else:
                 # No results yet or endpoint unreachable
                 self.results_text.insert(tk.END, "Results not available yet.\n")
@@ -645,12 +743,22 @@ class AdminPanel:
                 winner = results.get('winner') if isinstance(results, dict) else None
                 if winner:
                     if isinstance(winner, dict) and winner.get('tie'):
-                        names = ', '.join([w.get('name', w.get('candidate_id')) for w in winner.get('winners', [])])
+                        # For tie, show all winners with their symbols
+                        winner_strs = []
+                        for w in winner.get('winners', []):
+                            name = w.get('name', w.get('candidate_id'))
+                            party = w.get('party', '')
+                            symbol = self.party_symbols.get(party, self.party_symbols.get('', '🗳️'))
+                            winner_strs.append(f"{symbol} {name}")
+                        names = ', '.join(winner_strs)
                         self.winner_label.config(text=f"TIE: {names}", foreground=self.DANGER_COLOR)
                     else:
                         name = winner.get('name', winner.get('candidate_id'))
+                        party = winner.get('party', '')
                         votes = winner.get('votes', 0)
-                        self.winner_label.config(text=f"Winner: {name} — {votes} votes", foreground=self.SUCCESS_COLOR)
+                        symbol = self.party_symbols.get(party, self.party_symbols.get('', '🗳️'))
+                        self.winner_label.config(text=f"Winner: {symbol} {name} ({party}) — {votes} votes", 
+                                               foreground=self.SUCCESS_COLOR)
                 else:
                     self.winner_label.config(text="")
             except Exception:
@@ -673,6 +781,15 @@ class AdminPanel:
     def refresh_pending_voters(self):
         """Fetch voters with pending status and populate the listbox"""
         try:
+            # Refresh elections list for approval dropdown
+            success, elections = self.api.get_elections()
+            if success:
+                election_names = [f"{e.get('election_id')}: {e.get('name')}" for e in elections]
+                self.approval_election_combo['values'] = election_names
+                if election_names and not self.approval_election_var.get():
+                    self.approval_election_combo.current(0)
+            
+            # Fetch pending voters
             ok, resp = self.api.get_voters()
             self.pending_voters_listbox.delete(0, tk.END)
             if not ok:
@@ -692,33 +809,102 @@ class AdminPanel:
                     created = datetime.fromtimestamp(float(ts)).strftime('%Y-%m-%d %H:%M:%S') if ts else 'N/A'
                 except Exception:
                     created = str(ts)
-                display = f"{v.get('voter_id')}  |  {created}"
+                voter_name = v.get('name', 'Anonymous')
+                display = f"{v.get('voter_id')}  |  {voter_name}  |  {created}"
                 self.pending_voters_listbox.insert(tk.END, display)
         except Exception as e:
             self.log_security(f"Error refreshing voters: {e}")
 
     def approve_selected_voter(self):
-        """Approve the selected pending voter via API"""
+        """Approve the selected pending voter for the selected election via API"""
         try:
+            # Check if election is selected
+            election_selection = self.approval_election_var.get()
+            if not election_selection:
+                messagebox.showwarning("No Election", "Please select an election first.")
+                return
+            
+            # Extract election_id
+            election_id = election_selection.split(':')[0].strip()
+            
+            # Check if voter is selected
             sel = self.pending_voters_listbox.curselection()
             if not sel:
                 messagebox.showwarning("No Selection", "Please select a voter to approve.")
                 return
+            
             text = self.pending_voters_listbox.get(sel[0])
+            if text == "No pending voters":
+                return
+                
             voter_id = text.split('|')[0].strip()
 
-            ok, resp = self.api.approve_voter(voter_id)
+            # Call API with election_id
+            ok, resp = self.api.approve_voter(voter_id, election_id)
             if not ok:
                 messagebox.showerror("Approve Failed", f"Failed to approve voter: {resp}")
-                self.log_security(f"Failed to approve {voter_id}: {resp}")
+                self.log_security(f"Failed to approve {voter_id} for {election_id}: {resp}")
                 return
 
-            messagebox.showinfo("Approved", f"Voter {voter_id} approved.")
-            self.log_security(f"✅ Voter approved: {voter_id}")
+            messagebox.showinfo("Approved", f"Voter {voter_id} approved for election {election_id}.")
+            self.log_security(f"✅ Voter {voter_id} approved for election {election_id}")
             # Refresh list
             self.refresh_pending_voters()
         except Exception as e:
             messagebox.showerror("Error", str(e))
+            self.log_security(f"Error approving voter: {e}")
+
+    def open_current_election(self):
+        """Open the currently selected election (change from DRAFT to OPEN)"""
+        try:
+            if not self.current_election_id:
+                messagebox.showwarning("No Election", "Please select an election first.")
+                return
+            
+            # Get election details to check current status
+            success, election = self.api.get_election(self.current_election_id)
+            if not success:
+                messagebox.showerror("Error", "Could not fetch election details.")
+                return
+            
+            current_status = election.get('status', 'unknown').upper()
+            
+            if current_status == 'OPEN':
+                messagebox.showinfo("Already Open", "This election is already open!")
+                return
+            elif current_status == 'CLOSED':
+                messagebox.showwarning("Cannot Open", "This election has already ended. Cannot reopen a closed election.")
+                return
+            
+            confirm = messagebox.askyesno(
+                "Confirm Open Election", 
+                f"Open '{election.get('name')}'?\n\n"
+                "This will IMMEDIATELY:\n"
+                "• Change status from DRAFT → OPEN\n"
+                "• Allow approved voters to start voting NOW\n"
+                "• Make the election visible to voters\n\n"
+                "Note: Start/End dates are informational only.\n"
+                "Opening happens right now when you click Yes."
+            )
+            if not confirm:
+                return
+
+            ok, resp = self.api.election_action(self.current_election_id, 'open')
+            if not ok:
+                messagebox.showerror("Error", f"Failed to open election: {resp}")
+                return
+            
+            messagebox.showinfo(
+                "Success", 
+                f"✅ Election '{election.get('name')}' is now OPEN!\n\n"
+                "Approved voters can start voting immediately."
+            )
+            self.log_security(f"✅ Election {self.current_election_id} opened for voting")
+            self.refresh_dashboard()
+            
+        except Exception as e:
+            messagebox.showerror("Error", f"Error opening election: {str(e)}")
+            print(f"❌ Error in open_current_election: {e}")
 
     def end_current_election(self):
         """End the currently selected election and display results"""

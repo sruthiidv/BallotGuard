@@ -80,6 +80,17 @@ except Exception:
 
 app = Flask(__name__)
 
+# Party Symbols Dictionary - Indian Political Parties
+PARTY_SYMBOLS = {
+    "BJP": "🌸",          # Lotus
+    "INC": "✋",          # Hand
+    "AAP": "🧹",          # Broom
+    "CPI": "🌾",          # Ears of Corn
+    "TMC": "🌿",          # Grass flower and leaves
+    "Independent": "⭐",   # Star
+    "": "🗳️"              # Default ballot box
+}
+
 if CRYPTO_AVAILABLE:
     RSA_SK = RSA.import_key(RECEIPT_RSA_PRIV_PEM)
     RSA_PUB_PEM = RECEIPT_RSA_PUB_PEM  # returned to clients for verification
@@ -98,6 +109,11 @@ else:
 @app.route('/public-key', methods=['GET'])
 def get_public_key():
     return jsonify({"rsa_pub_pem": RSA_PUB_PEM})
+
+@app.route('/party-symbols', methods=['GET'])
+def get_party_symbols():
+    """Get available party symbols for election creation"""
+    return jsonify(PARTY_SYMBOLS)
 
 # Initial elections data
 INITIAL_ELECTIONS = [
@@ -205,6 +221,7 @@ def init_voters_table():
     # Voters table
     c.execute('''CREATE TABLE IF NOT EXISTS voters (
         voter_id TEXT PRIMARY KEY,
+        name TEXT,
         face_encoding TEXT,
         status TEXT,
         created_at REAL
@@ -262,6 +279,23 @@ def init_voters_table():
     conn.commit()
     conn.close()
 init_voters_table()
+
+
+def ensure_voters_name_column():
+    """Add name column to voters table if it doesn't exist"""
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("PRAGMA table_info(voters)")
+    cols = [row[1] for row in c.fetchall()]
+    if 'name' not in cols:
+        try:
+            c.execute("ALTER TABLE voters ADD COLUMN name TEXT")
+            conn.commit()
+        except Exception:
+            pass
+    conn.close()
+
+ensure_voters_name_column()
 
 
 def ensure_encrypted_votes_candidate_column():
@@ -375,10 +409,22 @@ init_elections_table()
 
 @app.route('/elections', methods=['GET'])
 def get_elections():
-    """Get list of all elections"""
+    """Get list of all elections
+    
+    Query parameter: 
+    - include_closed=true to include closed elections (for admin)
+    - Default: exclude closed elections (for voters)
+    """
     try:
+        include_closed = request.args.get('include_closed', 'false').lower() == 'true'
+        
         # Get all elections from the database
         db_list = load_all_elections_from_db()
+        
+        # Filter out closed elections unless explicitly requested
+        if not include_closed:
+            db_list = [e for e in db_list if e.get('status') != 'closed']
+        
         return jsonify(db_list)
     except Exception as e:
         return jsonify({"error": {"code": "LOAD_FAILED", "message": str(e)}}), 500
@@ -419,10 +465,14 @@ def create_election():
         candidates = data.get('candidates') or []
         normalized = []
         for idx, c in enumerate(candidates, start=1):
+            party = c.get('party') or 'Independent'
+            # Auto-assign symbol based on party if not provided
+            symbol = c.get('symbol') or PARTY_SYMBOLS.get(party, PARTY_SYMBOLS.get('', '🗳️'))
             normalized.append({
                 'candidate_id': c.get('candidate_id') or f"C{idx}",
                 'name': c.get('name') or c.get('candidate_name') or f"Candidate {idx}",
-                'party': c.get('party') or 'Independent'
+                'party': party,
+                'symbol': symbol
             })
 
         election = {
@@ -441,18 +491,8 @@ def create_election():
         # Save election to database
         save_election_to_db(election)
 
-        # If created as open, prepare voter_election_status entries for active voters
-        if election['status'] == 'open':
-            conn = get_db()
-            c = conn.cursor()
-            # All active voters should be eligible
-            c.execute("SELECT voter_id FROM voters WHERE status=?", ("active",))
-            rows = c.fetchall()
-            for r in rows:
-                c.execute("INSERT OR REPLACE INTO voter_election_status (election_id, voter_id, status, voted_flag, last_auth_ts) VALUES (?, ?, ?, ?, ?)",
-                          (election_id, r['voter_id'], 'active', 0, None))
-            conn.commit()
-            conn.close()
+        # Note: Voters must be manually approved for this election by admin
+        # No automatic voter enrollment
 
         return jsonify(election), 201
     except Exception as e:
@@ -534,6 +574,9 @@ def enroll_voter():
         # Generate unique voter ID
         voter_id = f"VOTER-{str(uuid.uuid4())[:8].upper()}"
 
+        # Get voter name (optional but recommended)
+        voter_name = data.get("name", "").strip() or "Anonymous"
+
         # Accept either face_encoding (preferred) or face_template (legacy), both as 128-float list
         face_encoding = data.get("face_encoding") or data.get("face_template")
         if not face_encoding:
@@ -545,11 +588,11 @@ def enroll_voter():
         except Exception as e:
             return jsonify({"error":{"code":"FACE_PARSE_FAIL","message":str(e)}}), 400
 
-        # Store in SQLite
+        # Store in SQLite with name
         conn = get_db()
         c = conn.cursor()
-        c.execute("INSERT INTO voters (voter_id, face_encoding, status, created_at) VALUES (?, ?, ?, ?)",
-                  (voter_id, json.dumps(enc.tolist()), "pending", time.time()))
+        c.execute("INSERT INTO voters (voter_id, name, face_encoding, status, created_at) VALUES (?, ?, ?, ?, ?)",
+                  (voter_id, voter_name, json.dumps(enc.tolist()), "pending", time.time()))
         conn.commit()
         conn.close()
 
@@ -559,6 +602,7 @@ def enroll_voter():
 
         return jsonify({
             "voter_id": voter_id,
+            "name": voter_name,
             "status": "pending"
         }), 201
     except Exception as e:
@@ -571,39 +615,81 @@ def enroll_voter():
 
 @app.route('/voters/<voter_id>/approve', methods=['POST'])
 def approve_voter(voter_id):
-    """Approve a voter - now using SQLite for persistence"""
-    # Check if voter exists in DB
-    conn = get_db()
-    c = conn.cursor()
-    c.execute("SELECT * FROM voters WHERE voter_id=?", (voter_id,))
-    row = c.fetchone()
-    if not row:
+    """Approve a voter for a specific election - per-election approval"""
+    try:
+        data = request.json or {}
+        election_id = data.get('election_id')
+        
+        if not election_id:
+            return jsonify({
+                "error": {
+                    "code": "MISSING_ELECTION",
+                    "message": "election_id is required for approval"
+                }
+            }), 400
+        
+        # Check if voter exists in DB
+        conn = get_db()
+        c = conn.cursor()
+        c.execute("SELECT * FROM voters WHERE voter_id=?", (voter_id,))
+        row = c.fetchone()
+        if not row:
+            conn.close()
+            return jsonify({
+                "error": {
+                    "code": "NOT_FOUND",
+                    "message": "Voter not found"
+                }
+            }), 404
+        
+        # Update voter's global status to active (if not already)
+        if row['status'] != 'active':
+            c.execute("UPDATE voters SET status=? WHERE voter_id=?", ("active", voter_id))
+            conn.commit()
+        
+        # Verify election exists
+        c.execute("SELECT * FROM elections WHERE election_id=?", (election_id,))
+        election = c.fetchone()
+        if not election:
+            conn.close()
+            return jsonify({
+                "error": {
+                    "code": "ELECTION_NOT_FOUND",
+                    "message": f"Election {election_id} not found"
+                }
+            }), 404
+        
+        # Add voter to this specific election's voter_election_status
+        c.execute("SELECT * FROM voter_election_status WHERE election_id=? AND voter_id=?",
+                  (election_id, voter_id))
+        existing = c.fetchone()
+        
+        if not existing:
+            # Insert new entry for this election
+            c.execute("INSERT INTO voter_election_status (election_id, voter_id, status, voted_flag, last_auth_ts) VALUES (?, ?, ?, ?, ?)",
+                (election_id, voter_id, "active", 0, None))
+        else:
+            # Update existing entry to active
+            c.execute("UPDATE voter_election_status SET status=? WHERE election_id=? AND voter_id=?",
+                ("active", election_id, voter_id))
+        
+        conn.commit()
         conn.close()
+        
+        return jsonify({
+            "status": "active",
+            "election_id": election_id,
+            "voter_id": voter_id,
+            "message": f"Voter {voter_id} approved for election {election_id}"
+        })
+        
+    except Exception as e:
         return jsonify({
             "error": {
-                "code": "NOT_FOUND",
-                "message": "Voter not found"
+                "code": "APPROVAL_FAILED",
+                "message": str(e)
             }
-        }), 404
-    # Update status to active
-    c.execute("UPDATE voters SET status=? WHERE voter_id=?", ("active", voter_id))
-    conn.commit()
-    conn.close()
-    # Make eligible for all open elections (in DB)
-    conn2 = get_db()
-    c2 = conn2.cursor()
-    
-    # Get all open elections from database
-    c2.execute("SELECT election_id FROM elections WHERE status='open'")
-    open_elections = c2.fetchall()
-    
-    for election in open_elections:
-        c2.execute("INSERT OR REPLACE INTO voter_election_status (election_id, voter_id, status, voted_flag, last_auth_ts) VALUES (?, ?, ?, ?, ?)",
-            (election['election_id'], voter_id, "active", 0, None))
-            
-    conn2.commit()
-    conn2.close()
-    return jsonify({"status": "active"})
+        }), 500
 
 
 @app.route('/voters/<voter_id>/block', methods=['POST'])
@@ -640,21 +726,56 @@ def get_voters():
         conn = get_db()
         c = conn.cursor()
         if status and status != 'all':
-            c.execute("SELECT voter_id, face_encoding, status, created_at FROM voters WHERE status=? ORDER BY created_at DESC", (status,))
+            c.execute("SELECT voter_id, name, face_encoding, status, created_at FROM voters WHERE status=? ORDER BY created_at DESC", (status,))
         else:
-            c.execute("SELECT voter_id, face_encoding, status, created_at FROM voters ORDER BY created_at DESC")
+            c.execute("SELECT voter_id, name, face_encoding, status, created_at FROM voters ORDER BY created_at DESC")
         rows = c.fetchall()
         conn.close()
         out = []
         for r in rows:
             out.append({
                 'voter_id': r['voter_id'],
+                'name': r['name'] if r['name'] else 'Anonymous',
                 'status': r['status'],
                 'created_at': r['created_at']
             })
         return jsonify(out)
     except Exception as e:
         return jsonify({"error": {"code": "FAILED", "message": str(e)}}), 500
+
+@app.route('/voters/<voter_id>/election-status/<election_id>', methods=['GET'])
+def get_voter_election_status(voter_id, election_id):
+    """Check if voter is approved for a specific election"""
+    try:
+        conn = get_db()
+        c = conn.cursor()
+        
+        # Check voter exists
+        c.execute("SELECT status FROM voters WHERE voter_id=?", (voter_id,))
+        voter = c.fetchone()
+        if not voter:
+            conn.close()
+            return jsonify({"approved": False, "reason": "voter_not_found"})
+        
+        # Check election-specific status
+        c.execute("SELECT status, voted_flag FROM voter_election_status WHERE election_id=? AND voter_id=?",
+                  (election_id, voter_id))
+        election_status = c.fetchone()
+        conn.close()
+        
+        if not election_status:
+            return jsonify({"approved": False, "reason": "not_approved_for_election"})
+        
+        if election_status['status'] != 'active':
+            return jsonify({"approved": False, "reason": "blocked_or_inactive"})
+        
+        if election_status['voted_flag']:
+            return jsonify({"approved": True, "already_voted": True})
+        
+        return jsonify({"approved": True, "already_voted": False})
+        
+    except Exception as e:
+        return jsonify({"error": {"code": "CHECK_FAILED", "message": str(e)}}), 500
 
 # Auth & OVT endpoints (Booth)
 @app.route('/auth/face/verify', methods=['POST'])
@@ -799,8 +920,15 @@ def cast_vote():
         encrypted_vote = data.get("encrypted_vote", {})
         if isinstance(encrypted_vote, dict):
             ciphertext = encrypted_vote.get("ciphertext")
+            # Ensure ciphertext is a string representation of the number
+            if ciphertext:
+                ciphertext = str(ciphertext)
         else:
             ciphertext = data.get("ciphertext", "mock_encrypted_vote")
+        
+        # Validate we have a proper ciphertext
+        if not ciphertext or ciphertext == "mock_encrypted_vote":
+            return jsonify({"error": {"code": "INVALID_VOTE", "message": "Invalid encrypted vote"}}), 400
             
         client_hash = data.get("client_hash")
         ovt = data.get("ovt", {})
@@ -973,6 +1101,7 @@ def simulate_tampering(election_id):
             backup = c.fetchone()
             
             if not backup:
+                conn.close()
                 return jsonify({
                     "message": "No tampered blocks found to restore",
                     "details": "The blockchain has not been tampered with or has already been restored"
@@ -989,6 +1118,7 @@ def simulate_tampering(election_id):
             # Remove the backup record
             c.execute("DELETE FROM tampered_blocks_backup WHERE id = ?", (backup['id'],))
             conn.commit()
+            conn.close()
             
             return jsonify({
                 "message": "Successfully restored the blockchain",
@@ -1005,6 +1135,7 @@ def simulate_tampering(election_id):
         block = c.fetchone()
         
         if not block:
+            conn.close()
             return jsonify({
                 "message": "No blocks available for tampering",
                 "details": "The blockchain needs at least one non-genesis block"
@@ -1026,12 +1157,16 @@ def simulate_tampering(election_id):
             (tampered_hash, election_id, block['ledger_index']))
         
         conn.commit()
+        conn.close()
+        
         return jsonify({
             "message": f"Simulated tampering at Block #{block['ledger_index']}",
             "details": "Modified the vote hash to break the blockchain's integrity. Use 'Verify' to see the impact and 'Undo Tampering' to restore."
         })
         
     except Exception as e:
+        if 'conn' in locals():
+            conn.close()
         return jsonify({"error": "OPERATION_FAILED", "message": str(e)}), 500
     try:
         conn = get_db()
@@ -1424,23 +1559,39 @@ def get_election_results(election_id):
     candidate_votes = {}
     for row in rows:
         cid = row[0]
+        cipher_str = row[1]
         if cid not in candidate_votes:
             candidate_votes[cid] = []
         try:
-            # Deserialize encrypted vote
-            enc_vote = paillier.EncryptedNumber(public_key, int(row[1]))
-            candidate_votes[cid].append(enc_vote)
+            # Deserialize encrypted vote - convert string to integer
+            if cipher_str and cipher_str != "mock_encrypted_vote":
+                cipher_int = int(cipher_str)
+                enc_vote = paillier.EncryptedNumber(public_key, cipher_int)
+                candidate_votes[cid].append(enc_vote)
+                print(f"✅ Successfully loaded vote for candidate {cid}")
+            else:
+                print(f"⚠️ Skipping mock/invalid vote for candidate {cid}")
+        except ValueError as e:
+            print(f"❌ ValueError deserializing vote for candidate {cid}: {e}, ciphertext: {cipher_str[:50]}")
+            continue
         except Exception as e:
-            print(f"Warning: Could not deserialize vote for candidate {cid}: {e}")
+            print(f"❌ Error deserializing vote for candidate {cid}: {e}")
             continue
 
     # Calculate encrypted sums and decrypt
     results_list = []
     total_votes = 0
+    
+    print(f"\n🔢 Tallying votes for election {found.get('election_id')}")
+    print(f"📊 Candidates to tally: {[c.get('name') for c in candidates]}")
+    print(f"📦 Encrypted votes by candidate: {[(cid, len(votes)) for cid, votes in candidate_votes.items()]}")
 
     for c_idx, cand in enumerate(candidates):
         cid = cand.get('candidate_id') or f"C{c_idx+1}"
         encrypted_votes = candidate_votes.get(cid, [])
+        
+        print(f"\n  Candidate: {cand.get('name')} (ID: {cid})")
+        print(f"  Encrypted votes found: {len(encrypted_votes)}")
         
         if encrypted_votes:
             # Homomorphically sum encrypted votes
@@ -1451,11 +1602,13 @@ def get_election_results(election_id):
             # Decrypt sum
             try:
                 vote_count = private_key.decrypt(sum_votes)
+                print(f"  ✅ Decrypted vote count: {vote_count}")
             except Exception as e:
-                print(f"Warning: Could not decrypt sum for candidate {cid}: {e}")
+                print(f"  ❌ Could not decrypt sum for candidate {cid}: {e}")
                 vote_count = 0
         else:
             vote_count = 0
+            print(f"  ⚠️ No votes found")
             
         total_votes += vote_count
 
@@ -1464,6 +1617,7 @@ def get_election_results(election_id):
         results_list.append({
             'candidate_id': cid,
             'name': cand.get('name'),
+            'party': cand.get('party', ''),  # Include party for symbol display
             'votes': vote_count,
             'percentage': pct
         })
@@ -1497,6 +1651,7 @@ def get_election_results(election_id):
             results_list.append({
                 'candidate_id': cid,
                 'name': cand_map.get(cid, f"Write-in {cid}"),
+                'party': '',  # Write-ins have no party
                 'votes': vote_count,
                 'percentage': pct
             })

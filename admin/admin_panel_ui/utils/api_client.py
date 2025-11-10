@@ -72,8 +72,9 @@ class APIClient:
     def enroll_voter(self, voter_data):
         return self.api_request("POST", "/voters/enroll", voter_data)
 
-    def approve_voter(self, voter_id):
-        return self.api_request("POST", f"/voters/{voter_id}/approve")
+    def approve_voter(self, voter_id, election_id):
+        """Approve voter for a specific election"""
+        return self.api_request("POST", f"/voters/{voter_id}/approve", {"election_id": election_id})
 
     def block_voter(self, voter_id):
         return self.api_request("POST", f"/voters/{voter_id}/block")
@@ -91,3 +92,7 @@ class APIClient:
 
     def get_system_health(self):
         return self.api_request("GET", "/health")
+    
+    def get_party_symbols(self):
+        """Get available party symbols from server"""
+        return self.api_request("GET", "/party-symbols")

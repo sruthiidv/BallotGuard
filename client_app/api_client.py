@@ -20,10 +20,13 @@ class BallotGuardAPI:
         except requests.exceptions.RequestException as e:
             return None, f"Network error: {str(e)}"
     
-    def enroll_voter(self, face_encoding):
-        """Enroll a new voter - MVP Architecture endpoint (now expects face_encoding)"""
+    def enroll_voter(self, face_encoding, name=None):
+        """Enroll a new voter - MVP Architecture endpoint (now expects face_encoding and optional name)"""
         try:
-            data = {"face_encoding": face_encoding}
+            data = {
+                "face_encoding": face_encoding,
+                "name": name or "Anonymous"
+            }
             response = requests.post(f"{self.server_base}/voters/enroll", json=data, timeout=10)
             if response.status_code == 201:
                 return response.json(), None
@@ -99,17 +102,35 @@ class BallotGuardAPI:
             return None, f"Network error: {str(e)}"
 
     def get_voter_status(self, voter_id):
-        """Return status for a single voter by querying /voters and filtering."""
+        """Get voter's global status - DEPRECATED: Use get_voter_election_status for per-election check"""
         try:
-            voters, err = self.get_voters()
-            if err:
-                return None, err
-            for v in voters:
-                if v.get('voter_id') == voter_id:
-                    return v.get('status'), None
-            return None, "Voter not found"
-        except Exception as e:
-            return None, f"Error: {str(e)}"
+            # This returns global voter status, not election-specific
+            response = requests.get(f"{self.server_base}/voters?status=all", timeout=5)
+            if response.status_code == 200:
+                voters = response.json()
+                for v in voters:
+                    if v.get('voter_id') == voter_id:
+                        return v.get('status'), None
+                return None, "Voter not found"
+            return None, f"Server error: {response.status_code}"
+        except requests.exceptions.RequestException as e:
+            return None, f"Network error: {str(e)}"
+    
+    def get_voter_election_status(self, voter_id, election_id):
+        """Check if voter is approved for a specific election"""
+        try:
+            response = requests.get(
+                f"{self.server_base}/voters/{voter_id}/election-status/{election_id}",
+                timeout=5
+            )
+            if response.status_code == 200:
+                return response.json(), None
+            else:
+                error_data = response.json() if response.headers.get('content-type') == 'application/json' else {}
+                error_msg = error_data.get("error", {}).get("message", f"Server error: {response.status_code}")
+                return None, error_msg
+        except requests.exceptions.RequestException as e:
+            return None, f"Network error: {str(e)}"
     
     def update_election_status(self, election_id, action):
         """Update election status (open/close/pause/resume/tally)"""
