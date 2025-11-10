@@ -46,8 +46,12 @@ class BallotGuardApp(ctk.CTk):
         
         # Configure window
         self.title("BallotGuard - Digital Voting System")
-        self.geometry("800x600")
-        self.resizable(False, False)
+        self.geometry("900x650")
+        self.minsize(800, 600)  # Set minimum window size
+        self.resizable(True, True)  # Enable window resizing
+        
+        # Center window on screen
+        self.center_window()
         
         # Set theme
         ctk.set_appearance_mode("dark")
@@ -70,6 +74,15 @@ class BallotGuardApp(ctk.CTk):
         
         self.create_frames()
         self.show_frame("MainMenu")
+    
+    def center_window(self):
+        """Center the window on the screen"""
+        self.update_idletasks()
+        width = self.winfo_width()
+        height = self.winfo_height()
+        x = (self.winfo_screenwidth() // 2) - (width // 2)
+        y = (self.winfo_screenheight() // 2) - (height // 2)
+        self.geometry(f'{width}x{height}+{x}+{y}')
     
     def create_frames(self):
         """Create all application frames"""
@@ -113,28 +126,31 @@ class MainMenuFrame(ctk.CTkFrame):
     def __init__(self, parent):
         super().__init__(parent)
         self.parent = parent
+        self.configure(fg_color="transparent")
         self.create_widgets()
     
     def create_widgets(self):
-        # Make the main menu scrollable
-        scrollable = ctk.CTkScrollableFrame(self, width=760, height=560)
-        scrollable.pack(expand=True, fill="both", padx=20, pady=20)
+        # Configure grid to make it responsive
+        self.grid_rowconfigure(0, weight=1)
+        self.grid_columnconfigure(0, weight=1)
+        
+        # Main scrollable container
+        scrollable = ctk.CTkScrollableFrame(self)
+        scrollable.grid(row=0, column=0, sticky="nsew", padx=20, pady=20)
+        scrollable.grid_columnconfigure(0, weight=1)
 
         # Centered container for all content
-        container = ctk.CTkFrame(scrollable)
-        container.pack(expand=True)
+        container = ctk.CTkFrame(scrollable, fg_color="transparent")
+        container.grid(row=0, column=0, sticky="nsew", padx=20, pady=20)
+        container.grid_columnconfigure(0, weight=1)
 
         # Welcome message frame
-        welcome_frame = ctk.CTkFrame(container)
-        welcome_frame.pack(pady=40, padx=40)
+        welcome_frame = ctk.CTkFrame(container, fg_color="transparent")
+        welcome_frame.grid(row=0, column=0, sticky="n", pady=(40, 20))
 
-        # Create a centered logo container
-        logo_container = ctk.CTkFrame(welcome_frame, fg_color="transparent")
-        logo_container.pack(pady=(20, 20), expand=True)
-        
         # Logo frame with PNG logo
-        logo_frame = ctk.CTkFrame(logo_container, fg_color="transparent")
-        logo_frame.pack()
+        logo_frame = ctk.CTkFrame(welcome_frame, fg_color="transparent")
+        logo_frame.grid(row=0, column=0, pady=(30, 20))
         
         # Load and display PNG logo
         logo_path = os.path.join(os.path.dirname(__file__), '..', 'assets', 'Untitled design.png')
@@ -143,55 +159,57 @@ class MainMenuFrame(ctk.CTkFrame):
                 logo_image = ctk.CTkImage(
                     light_image=Image.open(logo_path),
                     dark_image=Image.open(logo_path),
-                    size=(150, 150)  # Adjust size as needed
+                    size=(180, 180)  # Slightly larger logo
                 )
                 logo_label = ctk.CTkLabel(
                     logo_frame,
                     text="",  # No text, just image
                     image=logo_image
                 )
+                logo_label.image = logo_image  # Keep reference
             except Exception as e:
                 # Fallback to emoji if image loading fails
                 logo_label = ctk.CTkLabel(
                     logo_frame,
                     text="🗳️",  # Ballot box emoji
-                    font=ctk.CTkFont(size=120)  # Large icon size
+                    font=ctk.CTkFont(size=130)
                 )
         else:
             # Fallback to emoji if file doesn't exist
             logo_label = ctk.CTkLabel(
                 logo_frame,
                 text="🗳️",  # Ballot box emoji
-                font=ctk.CTkFont(size=120)  # Large icon size
+                font=ctk.CTkFont(size=130)
             )
-        logo_label.pack(pady=20)
+        logo_label.grid(row=0, column=0)
 
         # App title
         title_label = ctk.CTkLabel(
             welcome_frame,
             text="BallotGuard",
-            font=ctk.CTkFont(size=48, weight="bold")  # Larger font for main title
+            font=ctk.CTkFont(size=52, weight="bold")
         )
-        title_label.pack(pady=(0, 10))
+        title_label.grid(row=1, column=0, pady=(10, 5))
 
         # App subtitle
         subtitle_label = ctk.CTkLabel(
             welcome_frame,
             text="Secure Digital Voting System",
-            font=ctk.CTkFont(size=20)  # Consistent subtitle size
+            font=ctk.CTkFont(size=22)
         )
-        subtitle_label.pack(pady=10)
+        subtitle_label.grid(row=2, column=0, pady=(5, 30))
 
         # Enter button with clear call to action
         enter_btn = ctk.CTkButton(
             welcome_frame,
             text="Start Voting",
-            font=ctk.CTkFont(size=18, weight="bold"),
-            width=320,
-            height=56,
+            font=ctk.CTkFont(size=20, weight="bold"),
+            width=350,
+            height=60,
+            corner_radius=10,
             command=self.select_voter_role
         )
-        enter_btn.pack(pady=30)
+        enter_btn.grid(row=3, column=0, pady=(20, 40))
 
     
     def select_voter_role(self):
@@ -210,50 +228,64 @@ class VoterMenuFrame(ctk.CTkFrame):
     def __init__(self, parent):
         super().__init__(parent)
         self.parent = parent
+        self.configure(fg_color="transparent")
         self.create_widgets()
     
     def create_widgets(self):
+        # Configure grid for responsive layout
+        self.grid_rowconfigure(2, weight=1)  # Elections frame row
+        self.grid_columnconfigure(0, weight=1)
+        
         # Top Go Back button
         top_back_btn = ctk.CTkButton(
             self,
             text="← Go Back to Menu",
+            font=ctk.CTkFont(size=14),
+            width=160,
+            height=36,
             command=lambda: self.parent.show_frame("MainMenu")
         )
-        top_back_btn.pack(pady=(20, 0), anchor="w", padx=20)
+        top_back_btn.grid(row=0, column=0, pady=(20, 10), padx=20, sticky="w")
 
         # Header with Refresh button
-        header_frame = ctk.CTkFrame(self)
-        header_frame.pack(pady=20, padx=20, fill="x")
+        header_frame = ctk.CTkFrame(self, fg_color="transparent")
+        header_frame.grid(row=1, column=0, pady=(10, 15), padx=30, sticky="ew")
+        header_frame.grid_columnconfigure(0, weight=1)
 
         title_label = ctk.CTkLabel(
             header_frame,
             text="Available Elections",
-            font=ctk.CTkFont(size=24, weight="bold")
+            font=ctk.CTkFont(size=28, weight="bold")
         )
-        title_label.pack(side="left", pady=20)
+        title_label.grid(row=0, column=0, sticky="w")
 
         # Refresh button
         refresh_btn = ctk.CTkButton(
             header_frame,
             text="🔄 Refresh",
-            font=ctk.CTkFont(size=14),
-            width=120,
-            height=40,
+            font=ctk.CTkFont(size=15),
+            width=140,
+            height=42,
+            corner_radius=8,
             command=self.load_elections
         )
-        refresh_btn.pack(side="right", pady=20, padx=20)
+        refresh_btn.grid(row=0, column=1, padx=(15, 0))
 
         # Elections list (scrollable)
-        self.elections_frame = ctk.CTkScrollableFrame(self, height=400)
-        self.elections_frame.pack(pady=20, padx=20, fill="both", expand=True)
+        self.elections_frame = ctk.CTkScrollableFrame(self)
+        self.elections_frame.grid(row=2, column=0, pady=(10, 15), padx=30, sticky="nsew")
+        self.elections_frame.grid_columnconfigure(0, weight=1)
 
         # Bottom Back button
         back_btn = ctk.CTkButton(
             self,
             text="← Back to Main Menu",
+            font=ctk.CTkFont(size=14),
+            width=180,
+            height=40,
             command=lambda: self.parent.show_frame("MainMenu")
         )
-        back_btn.pack(pady=20)
+        back_btn.grid(row=3, column=0, pady=(10, 25))
     
     def on_show(self):
         """Load elections when frame is shown"""
@@ -280,102 +312,123 @@ class VoterMenuFrame(ctk.CTkFrame):
             no_elections_label = ctk.CTkLabel(
                 self.elections_frame,
                 text="No elections available",
-                font=ctk.CTkFont(size=16)
+                font=ctk.CTkFont(size=18)
             )
-            no_elections_label.pack(pady=20)
+            no_elections_label.grid(row=0, column=0, pady=40)
             return
         
-        for election in elections:
+        for idx, election in enumerate(elections):
             # Election card
             election_card = ctk.CTkFrame(self.elections_frame)
-            election_card.pack(pady=10, padx=10, fill="x")
+            election_card.grid(row=idx, column=0, pady=12, padx=15, sticky="ew")
+            election_card.grid_columnconfigure(0, weight=1)
             
-            # Election info
+            # Election info container
+            info_container = ctk.CTkFrame(election_card, fg_color="transparent")
+            info_container.grid(row=0, column=0, sticky="ew", padx=15, pady=12)
+            info_container.grid_columnconfigure(0, weight=1)
+            
+            # Election name
             name_label = ctk.CTkLabel(
-                election_card,
+                info_container,
                 text=election.get("name", "Unknown Election"),
-                font=ctk.CTkFont(size=18, weight="bold")
+                font=ctk.CTkFont(size=20, weight="bold"),
+                anchor="w"
             )
-            name_label.pack(pady=10, anchor="w")
+            name_label.grid(row=0, column=0, sticky="w", pady=(5, 8))
             
+            # Election ID
             id_label = ctk.CTkLabel(
-                election_card,
+                info_container,
                 text=f"ID: {election.get('election_id', 'Unknown')}",
-                font=ctk.CTkFont(size=12)
+                font=ctk.CTkFont(size=13)
             )
-            id_label.pack(anchor="w")
+            id_label.grid(row=1, column=0, sticky="w", pady=2)
             
+            # Status
             status_label = ctk.CTkLabel(
-                election_card,
+                info_container,
                 text=f"Status: {election.get('status', 'Unknown')}",
-                font=ctk.CTkFont(size=12)
+                font=ctk.CTkFont(size=13)
             )
-            status_label.pack(anchor="w")
+            status_label.grid(row=2, column=0, sticky="w", pady=(2, 5))
             
             # Check registration status
             voter_status = self.check_voter_status(election.get('election_id'))
             
             # Action buttons
-            button_frame = ctk.CTkFrame(election_card)
-            button_frame.pack(pady=10, fill="x")
+            button_frame = ctk.CTkFrame(election_card, fg_color="transparent")
+            button_frame.grid(row=1, column=0, pady=(5, 12), padx=15, sticky="w")
             
             # Handle different voter statuses for this election
             if voter_status == "voted":
                 voted_btn = ctk.CTkButton(
                     button_frame,
                     text="✓ Already Voted",
-                    width=120,
+                    width=150,
+                    height=38,
                     state="disabled",
                     fg_color="green",
-                    text_color="white"
+                    text_color="white",
+                    font=ctk.CTkFont(size=14, weight="bold")
                 )
-                voted_btn.pack(side="left", padx=5)
+                voted_btn.grid(row=0, column=0, padx=(0, 8))
                 
             elif voter_status == "not_registered":
                 register_btn = ctk.CTkButton(
                     button_frame,
                     text="Register",
-                    width=100,
+                    width=130,
+                    height=38,
+                    font=ctk.CTkFont(size=14),
                     command=lambda e=election: self.register_for_election(e)
                 )
-                register_btn.pack(side="left", padx=5)
+                register_btn.grid(row=0, column=0, padx=(0, 8))
                 
                 vote_btn = ctk.CTkButton(
                     button_frame,
                     text="Vote",
-                    width=100,
-                    state="disabled"
+                    width=130,
+                    height=38,
+                    state="disabled",
+                    font=ctk.CTkFont(size=14)
                 )
-                vote_btn.pack(side="left", padx=5)
+                vote_btn.grid(row=0, column=1)
                 
             elif voter_status == "pending":
                 status_btn = ctk.CTkButton(
                     button_frame,
-                    text="Pending Approval",
-                    width=120,
+                    text="⏳ Pending Approval",
+                    width=170,
+                    height=38,
                     state="disabled",
-                    fg_color="orange"
+                    fg_color="orange",
+                    font=ctk.CTkFont(size=14, weight="bold")
                 )
-                status_btn.pack(side="left", padx=5)
+                status_btn.grid(row=0, column=0)
                 
             elif voter_status == "approved":
                 vote_btn = ctk.CTkButton(
                     button_frame,
-                    text="Vote",
-                    width=100,
+                    text="🗳️ Vote Now",
+                    width=150,
+                    height=38,
+                    font=ctk.CTkFont(size=14, weight="bold"),
                     command=lambda e=election: self.vote_in_election(e)
                 )
-                vote_btn.pack(side="left", padx=5)
+                vote_btn.grid(row=0, column=0)
             
             elif voter_status == "blocked":
                 blocked_btn = ctk.CTkButton(
                     button_frame,
-                    text="Blocked",
-                    width=100,
+                    text="🚫 Blocked",
+                    width=130,
+                    height=38,
                     state="disabled",
-                    fg_color="red"
+                    fg_color="red",
+                    font=ctk.CTkFont(size=14, weight="bold")
                 )
-                blocked_btn.pack(side="left", padx=5)
+                blocked_btn.grid(row=0, column=0)
     
     def check_voter_status(self, election_id):
         """Check voter registration status for this specific election"""
@@ -839,6 +892,8 @@ class FaceVerificationFrame(ctk.CTkFrame):
     def __init__(self, parent):
         super().__init__(parent)
         self.parent = parent
+        self.verification_attempts = 0
+        self.max_attempts = 3
         self.create_widgets()
     
     def create_widgets(self):
@@ -947,6 +1002,11 @@ class FaceVerificationFrame(ctk.CTkFrame):
     
     def on_show(self):
         """Update display when frame is shown"""
+        # Reset verification attempts when frame is shown
+        self.verification_attempts = 0
+        self.verify_btn.configure(state="normal")
+        self.proceed_btn.configure(state="disabled")
+        
         election = self.parent.user_data.get("selected_election", {})
         if election:
             self.election_label.configure(text=f"Voting in: {election.get('name', 'Unknown Election')}")
@@ -1017,13 +1077,76 @@ class FaceVerificationFrame(ctk.CTkFrame):
                     self.proceed_btn.configure(state="normal")
                     self.parent.user_data["verified_voter_id"] = voter_id
                     self.parent.user_data["voter_id"] = voter_id
+                    # Reset attempts on success
+                    self.verification_attempts = 0
                 else:
-                    self.verify_status.configure(text="❌ Face verification failed", text_color="red")
+                    # Increment failed attempts
+                    self.verification_attempts += 1
+                    remaining_attempts = self.max_attempts - self.verification_attempts
+                    
+                    if self.verification_attempts >= self.max_attempts:
+                        self.verify_status.configure(
+                            text="❌ Face verification failed. Maximum attempts reached. Please contact support.", 
+                            text_color="red"
+                        )
+                        self.verify_btn.configure(state="disabled")
+                        messagebox.showerror(
+                            "Verification Failed", 
+                            "You have exceeded the maximum number of face verification attempts (3).\n\n"
+                            "Please contact election support for assistance."
+                        )
+                    else:
+                        self.verify_status.configure(
+                            text=f"❌ Face verification failed. {remaining_attempts} attempt(s) remaining.", 
+                            text_color="red"
+                        )
+                        messagebox.showwarning(
+                            "Verification Failed",
+                            f"Face verification failed.\n\nYou have {remaining_attempts} attempt(s) remaining."
+                        )
             else:
-                self.verify_status.configure(text=f"❌ {error}", text_color="red")
+                # Increment failed attempts for errors too
+                self.verification_attempts += 1
+                remaining_attempts = self.max_attempts - self.verification_attempts
+                
+                if self.verification_attempts >= self.max_attempts:
+                    self.verify_status.configure(
+                        text="❌ Maximum verification attempts reached. Please contact support.", 
+                        text_color="red"
+                    )
+                    self.verify_btn.configure(state="disabled")
+                    messagebox.showerror(
+                        "Verification Failed", 
+                        f"Maximum attempts reached.\n\nError: {error}\n\n"
+                        "Please contact election support for assistance."
+                    )
+                else:
+                    self.verify_status.configure(
+                        text=f"❌ {error} - {remaining_attempts} attempt(s) remaining.", 
+                        text_color="red"
+                    )
         except Exception as e:
-            messagebox.showerror("Error", f"Verification error: {str(e)}")
-            self.verify_status.configure(text=f"❌ Error: {str(e)}", text_color="red")
+            # Increment failed attempts for exceptions
+            self.verification_attempts += 1
+            remaining_attempts = self.max_attempts - self.verification_attempts
+            
+            if self.verification_attempts >= self.max_attempts:
+                self.verify_status.configure(
+                    text="❌ Maximum verification attempts reached. Please contact support.", 
+                    text_color="red"
+                )
+                self.verify_btn.configure(state="disabled")
+                messagebox.showerror(
+                    "Error", 
+                    f"Verification error: {str(e)}\n\n"
+                    "Maximum attempts reached. Please contact election support."
+                )
+            else:
+                messagebox.showerror("Error", f"Verification error: {str(e)}\n\n{remaining_attempts} attempt(s) remaining.")
+                self.verify_status.configure(
+                    text=f"❌ Error: {str(e)} - {remaining_attempts} attempt(s) remaining.", 
+                    text_color="red"
+                )
     
     def proceed_to_vote(self):
         """Issue OVT and proceed to voting interface"""

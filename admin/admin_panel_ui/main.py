@@ -4,7 +4,9 @@ import tkinter.messagebox as messagebox
 import tkinter.scrolledtext as scrolledtext
 from tkinter.ttk import Frame as TTKFrame, Label, Button, LabelFrame as Labelframe, Entry, Notebook, Combobox
 from datetime import datetime, timedelta
+from PIL import Image, ImageTk
 import time
+import os
 
 try:
     from utils.api_client import APIClient
@@ -42,20 +44,39 @@ class AdminPanel:
             
             self.app = tk.Tk()
             self.app.title("BallotGuard Admin Panel")
-            self.app.geometry("1400x1000")
-            self.app.minsize(1000, 800)
+            self.app.geometry("1400x900")
+            self.app.minsize(1200, 750)
             
-            # COLORS
-            self.BG_PRIMARY = "#0f1419"
-            self.BG_SECONDARY = "#1a202c"
-            self.BG_TERTIARY = "#2d3748"
+            # Center window on screen (will be overridden by maximize if successful)
+            self.center_window()
+
+            # Try to open maximized on startup (Windows-friendly). Fallback to other methods if needed.
+            try:
+                # Windows: 'zoomed' state will maximize the window
+                self.app.state('zoomed')
+            except Exception:
+                try:
+                    # Some platforms support the '-zoomed' attribute
+                    self.app.attributes('-zoomed', True)
+                except Exception:
+                    # Final fallback: set geometry to full screen size
+                    try:
+                        self.app.geometry(f"{self.app.winfo_screenwidth()}x{self.app.winfo_screenheight()}+0+0")
+                    except Exception:
+                        # If everything fails, keep the configured geometry
+                        pass
+            
+            # COLORS - Light Theme
+            self.BG_PRIMARY = "#ffffff"
+            self.BG_SECONDARY = "#f8f9fa"
+            self.BG_TERTIARY = "#e9ecef"
             self.ACCENT_BLUE = "#3b82f6"
-            self.ACCENT_BLUE_LIGHT = "#60a5fa"
+            self.ACCENT_BLUE_LIGHT = "#2563eb"
             self.ACCENT_BLUE_DARK = "#1e40af"
             self.SUCCESS_COLOR = "#10b981"
             self.DANGER_COLOR = "#ef4444"
-            self.TEXT_PRIMARY = "#f1f5f9"
-            self.TEXT_SECONDARY = "#cbd5e1"
+            self.TEXT_PRIMARY = "#1f2937"
+            self.TEXT_SECONDARY = "#6b7280"
             
             self.app.configure(bg=self.BG_PRIMARY)
             
@@ -63,57 +84,75 @@ class AdminPanel:
             self.style.theme_use('clam')
             
             self.style.configure('TFrame', background=self.BG_PRIMARY)
-            self.style.configure('TLabel', background=self.BG_PRIMARY, foreground=self.TEXT_PRIMARY)
+            self.style.configure('TLabel', background=self.BG_PRIMARY, foreground=self.TEXT_PRIMARY, 
+                               font=('Segoe UI', 10))
             self.style.configure('Header.TLabel', 
-                               font=('Segoe UI', 32, 'bold'), 
+                               font=('Segoe UI Semibold', 24, 'bold'), 
                                foreground=self.ACCENT_BLUE_LIGHT, 
-                               background=self.BG_PRIMARY)
+                               background=self.BG_SECONDARY)
             
             self.style.configure('TLabelframe', 
                                background=self.BG_SECONDARY, 
                                foreground=self.TEXT_PRIMARY,
                                borderwidth=1,
-                               relief='ridge')
+                               relief='solid',
+                               bordercolor=self.BG_TERTIARY)
             self.style.configure('TLabelframe.Label', 
                                background=self.BG_SECONDARY, 
                                foreground=self.ACCENT_BLUE_LIGHT, 
-                               font=('Segoe UI', 11, 'bold'))
+                               font=('Segoe UI Semibold', 12, 'bold'))
             
-            self.style.configure('TNotebook', background=self.BG_PRIMARY)
+            self.style.configure('TNotebook', background=self.BG_PRIMARY, borderwidth=0)
             self.style.configure('TNotebook.Tab', 
                                background=self.BG_SECONDARY, 
                                foreground=self.TEXT_SECONDARY,
-                               padding=[20, 12])
+                               padding=[25, 14],
+                               borderwidth=0,
+                               font=("Segoe UI Semibold", 11, 'bold'))
             self.style.map('TNotebook.Tab', 
                           background=[('selected', self.ACCENT_BLUE), ('active', self.BG_TERTIARY)],
-                          foreground=[('selected', self.TEXT_PRIMARY)])
+                          foreground=[('selected', '#ffffff')])
             
             self.style.configure('TEntry', 
                                fieldbackground=self.BG_TERTIARY, 
                                foreground=self.TEXT_PRIMARY,
-                               borderwidth=1)
+                               borderwidth=1,
+                               relief='solid',
+                               bordercolor='#d1d5db')
             
             self.style.configure('Success.TButton', 
-                               font=('Segoe UI', 14, 'bold'), 
-                               padding=18)
+                               font=('Segoe UI Semibold', 12, 'bold'), 
+                               padding=15,
+                               borderwidth=0,
+                               relief='flat',
+                               borderradius=8)
             self.style.map('Success.TButton',
                           background=[('pressed', '#059669'), ('active', '#34d399')])
             
             self.style.configure('Primary.TButton', 
-                               font=('Segoe UI', 11, 'bold'), 
-                               padding=12)
+                               font=('Segoe UI Semibold', 11, 'bold'), 
+                               padding=12,
+                               borderwidth=0,
+                               relief='flat',
+                               borderradius=6)
             self.style.map('Primary.TButton',
                           background=[('pressed', self.ACCENT_BLUE_DARK), ('active', self.ACCENT_BLUE_LIGHT)])
             
             self.style.configure('Secondary.TButton', 
-                               font=('Segoe UI', 11, 'bold'), 
-                               padding=12)
+                               font=('Segoe UI Semibold', 11, 'bold'), 
+                               padding=12,
+                               borderwidth=0,
+                               relief='flat',
+                               borderradius=6)
             self.style.map('Secondary.TButton',
                           background=[('pressed', self.BG_PRIMARY), ('active', '#334155')])
             
             self.style.configure('Danger.TButton', 
-                               font=('Segoe UI', 10, 'bold'), 
-                               padding=10)
+                               font=('Segoe UI Semibold', 10, 'bold'), 
+                               padding=10,
+                               borderwidth=0,
+                               relief='flat',
+                               borderradius=6)
             self.style.map('Danger.TButton',
                           background=[('pressed', '#dc2626'), ('active', '#f87171')])
             
@@ -136,6 +175,15 @@ class AdminPanel:
             import traceback
             traceback.print_exc()
     
+    def center_window(self):
+        """Center the window on the screen"""
+        self.app.update_idletasks()
+        width = self.app.winfo_width()
+        height = self.app.winfo_height()
+        x = (self.app.winfo_screenwidth() // 2) - (width // 2)
+        y = (self.app.winfo_screenheight() // 2) - (height // 2)
+        self.app.geometry(f'{width}x{height}+{x}+{y}')
+    
     def setup_ui(self):
         """Setup main UI"""
         try:
@@ -144,15 +192,43 @@ class AdminPanel:
             title_frame.pack(fill="x", padx=0, pady=0)
             
             inner_title = tk.Frame(title_frame, bg=self.BG_SECONDARY)
-            inner_title.pack(fill="x", padx=20, pady=20)
+            inner_title.pack(fill="x", padx=30, pady=20)
             
-            Label(inner_title, text="🗳️ BallotGuard Election Manager", 
+            # Left side - Logo and Title
+            left_side = tk.Frame(inner_title, bg=self.BG_SECONDARY)
+            left_side.pack(side="left")
+            
+            # Load logo from voter UI assets
+            logo_path = os.path.join(os.path.dirname(__file__), '..', '..', 'client_app', 'assets', 'Untitled design.png')
+            if os.path.exists(logo_path):
+                try:
+                    logo_img = Image.open(logo_path)
+                    logo_img = logo_img.resize((50, 50), Image.Resampling.LANCZOS)
+                    self.logo_photo = ImageTk.PhotoImage(logo_img)
+                    # Add a background frame for the logo
+                    logo_frame = tk.Frame(left_side, bg=self.ACCENT_BLUE, padx=8, pady=8)
+                    logo_frame.pack(side="left", padx=(0, 15))
+                    logo_label = tk.Label(logo_frame, image=self.logo_photo, bg=self.ACCENT_BLUE, borderwidth=0)
+                    logo_label.pack()
+                except Exception as e:
+                    print(f"⚠️ Could not load logo: {e}")
+                    # Fallback to emoji
+                    logo_label = tk.Label(left_side, text="🗳️", font=("Segoe UI", 32), 
+                                        bg=self.BG_SECONDARY, fg=self.ACCENT_BLUE)
+                    logo_label.pack(side="left", padx=(0, 15))
+            else:
+                # Fallback to emoji
+                logo_label = tk.Label(left_side, text="🗳️", font=("Segoe UI", 32), 
+                                    bg=self.BG_SECONDARY, fg=self.ACCENT_BLUE)
+                logo_label.pack(side="left", padx=(0, 15))
+            
+            Label(left_side, text="BallotGuard Election Manager", 
                   style='Header.TLabel').pack(side="left")
             
             status_frame = tk.Frame(inner_title, bg=self.BG_SECONDARY)
             status_frame.pack(side="right")
             self.db_status_label = Label(status_frame, text="● CHECKING...", 
-                                       font=('Segoe UI', 10, 'bold'), 
+                                       font=('Segoe UI', 11, 'bold'), 
                                        foreground="orange", 
                                        background=self.BG_SECONDARY)
             self.db_status_label.pack(side="right", padx=(0, 10))
@@ -161,11 +237,11 @@ class AdminPanel:
             self.check_server_connection()
             
             # Divider
-            tk.Frame(self.app, bg=self.ACCENT_BLUE, height=3).pack(fill="x", padx=0, pady=0)
+            tk.Frame(self.app, bg=self.ACCENT_BLUE, height=4).pack(fill="x", padx=0, pady=0)
             
             # TABS
             notebook = Notebook(self.app)
-            notebook.pack(fill="both", expand=True, padx=0, pady=0)
+            notebook.pack(fill="both", expand=True, padx=20, pady=20)
             self.notebook = notebook
             
             # Create tabs
@@ -222,37 +298,42 @@ class AdminPanel:
             frame.configure(style='TFrame')
             notebook.add(frame, text="📊 Dashboard")
 
+            # Selector frame with better padding
             selector_frame = Labelframe(frame, text="📋 Current Election", padding=15)
-            selector_frame.pack(fill="x", pady=15, padx=15)
+            selector_frame.pack(fill="x", pady=(15, 12), padx=20)
 
-            Label(selector_frame, text="Select Election:", font=("Segoe UI", 10, 'bold'), 
-                  foreground=self.TEXT_SECONDARY, background=self.BG_SECONDARY).pack(side="left", padx=(0, 10))
+            # Configure grid for responsive layout
+            selector_frame.grid_columnconfigure(1, weight=1)
+            
+            Label(selector_frame, text="Select Election:", font=("Segoe UI Semibold", 11), 
+                  foreground=self.TEXT_SECONDARY, background=self.BG_SECONDARY).grid(row=0, column=0, sticky="w", padx=(0, 12))
             
             self.election_var = tk.StringVar()
             self.election_combo = Combobox(selector_frame, textvariable=self.election_var, 
-                                          state="readonly", font=("Segoe UI", 10))
-            self.election_combo.pack(side="left", padx=(0, 10), fill="x", expand=True)
+                                          state="readonly", font=("Segoe UI", 11))
+            self.election_combo.grid(row=0, column=1, sticky="ew", padx=(0, 12))
             self.election_combo.bind("<<ComboboxSelected>>", self.on_election_changed)
 
             Button(selector_frame, text="🔄 Refresh", command=self.refresh_elections, 
-                   style='Primary.TButton').pack(side="right", padx=0)
+                   style='Primary.TButton').grid(row=0, column=2, sticky="e")
 
+            # Status label with better spacing
             self.election_status_label = Label(frame, 
                                              text="👈 Select an election to view status", 
-                                             font=("Segoe UI", 11, 'bold'), 
+                                             font=("Segoe UI Semibold", 12, 'bold'), 
                                              foreground=self.ACCENT_BLUE_LIGHT)
-            self.election_status_label.pack(fill="x", padx=15, pady=(10, 15))
+            self.election_status_label.pack(fill="x", padx=20, pady=(12, 8))
 
             # Winner label (empty until results available)
             self.winner_label = Label(frame, 
                                       text="", 
-                                      font=("Segoe UI", 14, 'bold'), 
+                                      font=("Segoe UI Semibold", 15, 'bold'), 
                                       foreground=self.SUCCESS_COLOR)
-            self.winner_label.pack(fill="x", padx=15, pady=(0, 10))
+            self.winner_label.pack(fill="x", padx=20, pady=(5, 12))
 
-            # Action buttons frame
+            # Action buttons frame with better layout
             action_buttons_frame = tk.Frame(frame, bg=self.BG_PRIMARY)
-            action_buttons_frame.pack(fill="x", padx=15, pady=(0, 12))
+            action_buttons_frame.pack(fill="x", padx=20, pady=(0, 12))
             
             # Configure grid for equal-width buttons
             action_buttons_frame.grid_columnconfigure(0, weight=1)
@@ -262,24 +343,27 @@ class AdminPanel:
             open_btn = Button(action_buttons_frame, text="🟢 Open Election", 
                    command=self.open_current_election, 
                    style='Secondary.TButton')
-            open_btn.grid(row=0, column=0, sticky="ew", padx=(0, 5))
+            open_btn.grid(row=0, column=0, sticky="ew", padx=(0, 6))
             
             # End election button - manually close and show results
             end_btn = Button(action_buttons_frame, text="⏹️ End Election", 
                    command=self.end_current_election, 
                    style='Secondary.TButton')
-            end_btn.grid(row=0, column=1, sticky="ew", padx=(5, 0))
+            end_btn.grid(row=0, column=1, sticky="ew", padx=(6, 0))
 
+            # Results frame with better padding
             results_frame = Labelframe(frame, text="📊 Live Results", padding=15)
-            results_frame.pack(fill="both", expand=True, padx=15, pady=(0, 15))
+            results_frame.pack(fill="both", expand=True, padx=20, pady=(0, 15))
 
             self.results_text = scrolledtext.ScrolledText(results_frame, 
-                                                         height=20, 
+                                                         height=18, 
                                                          font=("Consolas", 10),
-                                                         bg=self.BG_PRIMARY, 
-                                                         fg=self.ACCENT_BLUE_LIGHT,
-                                                         insertbackground=self.ACCENT_BLUE)
-            self.results_text.pack(fill="both", expand=True)
+                                                         bg="#ffffff", 
+                                                         fg=self.TEXT_PRIMARY,
+                                                         insertbackground=self.ACCENT_BLUE,
+                                                         borderwidth=0,
+                                                         relief="flat")
+            self.results_text.pack(fill="both", expand=True, padx=3, pady=3)
             
             print("✅ Dashboard tab created")
         except Exception as e:
@@ -293,9 +377,9 @@ class AdminPanel:
             main_frame.pack(fill="both", expand=True)
             notebook.add(main_frame, text="➕ Create Election")
             
-            # Content area - tk.Frame with bg
+            # Content area - tk.Frame with bg - CENTER IT
             content_frame = tk.Frame(main_frame, bg=self.BG_PRIMARY)
-            content_frame.pack(fill="both", expand=True, side="top")
+            content_frame.pack(fill="both", expand=True, side="top", padx=50, pady=20)
             
             # Scrollable content
             canvas = tk.Canvas(content_frame, bg=self.BG_PRIMARY, highlightthickness=0)
@@ -305,8 +389,14 @@ class AdminPanel:
             scrollable_frame.bind("<Configure>", 
                 lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
             
-            canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+            canvas.create_window((0, 0), window=scrollable_frame, anchor="nw", width=canvas.winfo_reqwidth())
             canvas.configure(yscrollcommand=scrollbar.set)
+            
+            # Bind canvas resize to update window width
+            def on_canvas_configure(event):
+                canvas.itemconfig(canvas.find_withtag("all")[0], width=event.width)
+            canvas.bind('<Configure>', on_canvas_configure)
+            
             canvas.pack(side="left", fill="both", expand=True)
             scrollbar.pack(side="right", fill="y")
             
@@ -315,65 +405,65 @@ class AdminPanel:
                 canvas.yview_scroll(int(-1*(event.delta/120)), "units")
             canvas.bind_all("<MouseWheel>", on_wheel)
             
-            # FORM CONTENT
-            form_frame = Labelframe(scrollable_frame, text="📋 Create New Election", padding=20)
-            form_frame.pack(fill="both", expand=True, padx=15, pady=15)
+            # FORM CONTENT - with better horizontal spacing
+            form_frame = Labelframe(scrollable_frame, text="📋 Create New Election", padding=30)
+            form_frame.pack(fill="both", expand=True, padx=40, pady=25)
             
             # Election Title
             Label(form_frame, text="📝 Election Title:", 
-                  font=("Segoe UI", 11, 'bold'), 
-                  foreground=self.ACCENT_BLUE_LIGHT).pack(anchor="w", pady=(0, 5))
+                  font=("Segoe UI Semibold", 11, 'bold'), 
+                  foreground=self.ACCENT_BLUE_LIGHT).pack(anchor="w", pady=(5, 6))
             Entry(form_frame, textvariable=self.election_title_var, 
-                  font=("Segoe UI", 10)).pack(fill="x", ipady=5, pady=(0, 15))
+                  font=("Segoe UI", 11)).pack(fill="x", ipady=7, pady=(0, 15))
             
             # Description
             Label(form_frame, text="📝 Description:", 
-                  font=("Segoe UI", 11, 'bold'), 
-                  foreground=self.ACCENT_BLUE_LIGHT).pack(anchor="w", pady=(0, 5))
+                  font=("Segoe UI Semibold", 11, 'bold'), 
+                  foreground=self.ACCENT_BLUE_LIGHT).pack(anchor="w", pady=(0, 6))
             Entry(form_frame, textvariable=self.election_desc_var, 
-                  font=("Segoe UI", 10)).pack(fill="x", ipady=5, pady=(0, 15))
+                  font=("Segoe UI", 11)).pack(fill="x", ipady=7, pady=(0, 15))
             
             # Timeline Section
             timeline_frame = Labelframe(form_frame, text="📅 Election Timeline", padding=15)
-            timeline_frame.pack(fill="x", pady=15)
+            timeline_frame.pack(fill="x", pady=(10, 15))
             
             Label(timeline_frame, text="🟢 START", 
-                  font=("Segoe UI", 10, 'bold'), 
+                  font=("Segoe UI Semibold", 11, 'bold'), 
                   foreground=self.SUCCESS_COLOR).pack(anchor="w", pady=(0, 8))
             
             start_row = tk.Frame(timeline_frame, bg=self.BG_SECONDARY)
-            start_row.pack(fill="x", pady=(0, 12))
-            Label(start_row, text="Date:", font=("Segoe UI", 9, 'bold'),
-                  background=self.BG_SECONDARY).pack(side="left", padx=(0, 5))
+            start_row.pack(fill="x", pady=(0, 10))
+            Label(start_row, text="Date:", font=("Segoe UI Semibold", 10),
+                  background=self.BG_SECONDARY).pack(side="left", padx=(0, 6))
             Entry(start_row, textvariable=self.start_date_var, 
-                  font=("Segoe UI", 9), width=15).pack(side="left", padx=3, ipady=3)
-            Label(start_row, text="  Time:", font=("Segoe UI", 9, 'bold'),
-                  background=self.BG_SECONDARY).pack(side="left", padx=(10, 5))
+                  font=("Segoe UI", 11), width=16).pack(side="left", padx=4, ipady=5)
+            Label(start_row, text="Time:", font=("Segoe UI Semibold", 10),
+                  background=self.BG_SECONDARY).pack(side="left", padx=(12, 6))
             Entry(start_row, textvariable=self.start_time_var, 
-                  font=("Segoe UI", 9), width=10).pack(side="left", padx=3, ipady=3)
+                  font=("Segoe UI", 11), width=10).pack(side="left", padx=4, ipady=5)
             
         # NOTE: End time removed from the form. Elections are ended manually
         # by the administrator using the Dashboard -> End Election button.
             
             # Voters
             Label(form_frame, text="👥 Eligible Voters:", 
-                  font=("Segoe UI", 11, 'bold'), 
-                  foreground=self.ACCENT_BLUE_LIGHT).pack(anchor="w", pady=(15, 5))
+                  font=("Segoe UI Semibold", 11, 'bold'), 
+                  foreground=self.ACCENT_BLUE_LIGHT).pack(anchor="w", pady=(10, 6))
             Entry(form_frame, textvariable=self.eligible_voters_var, 
-                  font=("Segoe UI", 10)).pack(fill="x", ipady=5, pady=(0, 15))
+                  font=("Segoe UI", 11)).pack(fill="x", ipady=7, pady=(0, 15))
             
             # Candidates
             cand_section = Labelframe(form_frame, text="🏛️ Candidates", padding=15)
-            cand_section.pack(fill="both", expand=True, pady=15)
+            cand_section.pack(fill="both", expand=True, pady=(10, 15))
             
             header = tk.Frame(cand_section, bg=self.BG_SECONDARY)
             header.pack(fill="x", pady=(0, 10))
             Label(header, text="Minimum 2 candidates required", 
-                  font=("Segoe UI", 10, 'bold'), 
+                  font=("Segoe UI Semibold", 10), 
                   foreground=self.TEXT_SECONDARY,
                   background=self.BG_SECONDARY).pack(side="left")
             self.candidates_count_label = Label(header, text="Count: 0", 
-                                              font=("Segoe UI", 10, 'bold'), 
+                                              font=("Segoe UI Semibold", 10, 'bold'), 
                                               foreground=self.SUCCESS_COLOR,
                                               background=self.BG_SECONDARY)
             self.candidates_count_label.pack(side="right")
@@ -396,24 +486,24 @@ class AdminPanel:
             self.add_candidate_field()
             
             add_cand_btn = tk.Frame(cand_section, bg=self.BG_SECONDARY)
-            add_cand_btn.pack(fill="x", pady=10)
+            add_cand_btn.pack(fill="x", pady=(10, 5))
             Button(add_cand_btn, text="+ Add Candidate", 
                    command=self.add_candidate_field, 
-                   style="Secondary.TButton").pack(side="left", padx=0)
+                   style="Secondary.TButton").pack(padx=10)
             
             # BOTTOM BUTTON AREA - ALWAYS VISIBLE using tk.Frame
             button_area = tk.Frame(main_frame, bg=self.BG_SECONDARY)
-            button_area.pack(fill="x", side="bottom", padx=15, pady=15)
+            button_area.pack(fill="x", side="bottom", padx=90, pady=20)
             
-            submit_btn = Button(button_area, text="✓ SUBMIT & SAVE TO DATABASE", 
+            submit_btn = Button(button_area, text="✓ Submit & Save to Database", 
                                command=self.submit_election_to_db, 
                                style="Success.TButton")
-            submit_btn.pack(fill="x", pady=8, ipady=20)
+            submit_btn.pack(fill="x", pady=(0, 10), ipady=12)
             
-            clear_btn = Button(button_area, text="Clear Form", 
+            clear_btn = Button(button_area, text="🗑️ Clear Form", 
                               command=self.clear_election_form, 
                               style="Secondary.TButton")
-            clear_btn.pack(fill="x", ipady=12)
+            clear_btn.pack(fill="x", ipady=10)
             
             print("✅ Election creation tab created successfully")
             
@@ -426,31 +516,32 @@ class AdminPanel:
         """Add candidate"""
         try:
             cand_frame = tk.Frame(self.candidates_container, bg=self.BG_PRIMARY)
-            cand_frame.pack(fill="x", pady=6, padx=0)
+            cand_frame.pack(fill="x", pady=6, padx=8)
             
-            inner = tk.Frame(cand_frame, bg=self.BG_TERTIARY)
-            inner.pack(fill="x", padx=8, pady=6)
+            inner = tk.Frame(cand_frame, bg=self.BG_TERTIARY, highlightbackground=self.BG_TERTIARY, 
+                           highlightthickness=1)
+            inner.pack(fill="x", padx=12, pady=8)
             
             num = len(self.candidate_entries) + 1
             Label(inner, text=f"#{num}", 
-                 font=("Segoe UI", 11, 'bold'), 
+                 font=("Segoe UI Semibold", 11, 'bold'), 
                  foreground=self.ACCENT_BLUE, 
-                 background=self.BG_TERTIARY).pack(side="left", padx=8, pady=6)
+                 background=self.BG_TERTIARY).pack(side="left", padx=12, pady=8)
             
             # Candidate Name
             Label(inner, text="Name:", 
-                 font=("Segoe UI", 9), 
+                 font=("Segoe UI Semibold", 10), 
                  foreground=self.TEXT_SECONDARY, 
-                 background=self.BG_TERTIARY).pack(side="left", padx=(0, 3))
+                 background=self.BG_TERTIARY).pack(side="left", padx=(8, 8))
             
             name_var = tk.StringVar()
-            Entry(inner, textvariable=name_var, font=("Segoe UI", 9), width=20).pack(side="left", padx=3, ipady=4)
+            Entry(inner, textvariable=name_var, font=("Segoe UI", 11), width=28).pack(side="left", padx=6, ipady=6)
             
             # Party Dropdown
             Label(inner, text="Party:", 
-                 font=("Segoe UI", 9), 
+                 font=("Segoe UI Semibold", 10), 
                  foreground=self.TEXT_SECONDARY, 
-                 background=self.BG_TERTIARY).pack(side="left", padx=(10, 3))
+                 background=self.BG_TERTIARY).pack(side="left", padx=(15, 8))
             
             party_var = tk.StringVar()
             # Create list of party options with symbols
@@ -461,15 +552,15 @@ class AdminPanel:
             party_combo = Combobox(inner, textvariable=party_var, 
                                   values=party_options,
                                   state="readonly",
-                                  font=("Segoe UI", 9), 
-                                  width=18)
-            party_combo.pack(side="left", padx=3, ipady=4)
+                                  font=("Segoe UI", 11), 
+                                  width=22)
+            party_combo.pack(side="left", padx=6, ipady=6)
             # Set default to Independent
             party_combo.current(len(party_options) - 1)
             
             Button(inner, text="✕", 
                    command=lambda: self.remove_candidate_field(num),
-                   style="Danger.TButton", width=3).pack(side="right", padx=8, pady=6)
+                   style="Danger.TButton", width=3).pack(side="right", padx=12, pady=8)
             
             self.candidate_entries.append({
                 'frame': cand_frame,
