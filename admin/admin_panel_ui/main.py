@@ -47,24 +47,8 @@ class AdminPanel:
             self.app.geometry("1400x900")
             self.app.minsize(1200, 750)
             
-            # Center window on screen (will be overridden by maximize if successful)
+            # Center window on screen
             self.center_window()
-
-            # Try to open maximized on startup (Windows-friendly). Fallback to other methods if needed.
-            try:
-                # Windows: 'zoomed' state will maximize the window
-                self.app.state('zoomed')
-            except Exception:
-                try:
-                    # Some platforms support the '-zoomed' attribute
-                    self.app.attributes('-zoomed', True)
-                except Exception:
-                    # Final fallback: set geometry to full screen size
-                    try:
-                        self.app.geometry(f"{self.app.winfo_screenwidth()}x{self.app.winfo_screenheight()}+0+0")
-                    except Exception:
-                        # If everything fails, keep the configured geometry
-                        pass
             
             # COLORS - Light Theme
             self.BG_PRIMARY = "#ffffff"

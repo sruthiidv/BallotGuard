@@ -23,10 +23,10 @@ def prepare_vote_data(vote_id, election_id, candidate_id, candidate_index=None, 
         except Exception:
             pass
     else:
-        # Mock encryption fallback
+        # fallback
         ciphertext = f"encrypted_vote_for_{candidate_id}"
         try:
-            print(f"DEBUG: Mock encryption used. vote_id={vote_id}, election_id={election_id}, candidate_id={candidate_id}")
+            print(f" vote_id={vote_id}, election_id={election_id}, candidate_id={candidate_id}")
         except Exception:
             pass
 

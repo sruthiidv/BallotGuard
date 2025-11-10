@@ -64,3 +64,9 @@ Thumbs.db
 
 # Local DBs
 client_local.db
+
+# Keys: ignore private keys and key material
+keys/*.pem
+keys/*.key
+keys/*_private*.json
+keys/*.secret

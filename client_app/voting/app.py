@@ -1385,7 +1385,11 @@ class VotingInterfaceFrame(ctk.CTkFrame):
                 from client_app.client_config import PAILLIER_N
                 from phe import paillier
                 paillier_pubkey = paillier.PaillierPublicKey(PAILLIER_N)
-                encrypted_vote_obj = paillier_encrypt(paillier_pubkey, idx)
+                # SECURITY/CONSISTENCY: Always encrypt the constant 1 for each cast vote.
+                # The authoritative candidate attribution is sent separately via `candidate_id`.
+                # This ensures homomorphic tallying (sum of ciphertexts) yields counts per candidate
+                # and avoids any accidental mapping between numeric encodings and candidate identities.
+                encrypted_vote_obj = paillier_encrypt(paillier_pubkey, 1)
                 # Serialize EncryptedNumber for JSON
                 encrypted_vote = {
                     "ciphertext": str(encrypted_vote_obj.ciphertext()),

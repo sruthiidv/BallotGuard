@@ -12,7 +12,12 @@ TESTS = [
 
 def run_test(script):
     print(f"\n=== Running {script} ===")
-    proc = subprocess.run([sys.executable, script], capture_output=True, text=True)
+    # Ensure subprocesses can import top-level packages by setting PYTHONPATH to repo root
+    repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir))
+    env = os.environ.copy()
+    prev = env.get("PYTHONPATH", "")
+    env["PYTHONPATH"] = repo_root + (os.pathsep + prev if prev else "")
+    proc = subprocess.run([sys.executable, script], capture_output=True, text=True, env=env)
     if proc.returncode == 0:
         print(proc.stdout.strip())
         print(f"--- {script}: PASS ---")
