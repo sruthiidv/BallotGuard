@@ -1,0 +1,25 @@
+{
+  "test_count": 0,
+  "components": {
+    "face_auth": {
+      "mean": 500.38713994435966,
+      "std": 0.13344225702616874
+    },
+    "ovt_issue": {
+      "mean": 2106.4591000322253,
+      "std": 0.0
+    },
+    "vote_cast": {
+      "mean": 2510.7166999951005,
+      "std": 0.0
+    },
+    "receipt_verify": {
+      "mean": NaN,
+      "std": NaN
+    },
+    "total": {
+      "mean": NaN,
+      "std": NaN
+    }
+  }
+}

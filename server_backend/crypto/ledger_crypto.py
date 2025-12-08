@@ -1,6 +1,9 @@
 """
-Ledger (block) signing using RSA-2048.
+Ledger (block) signing using RSA-PSS (aligned with server.py implementation).
 Block headers are JSON-dicts; we compute SHA-256 on the canonical JSON bytes and sign that.
+
+This module provides test-compatible wrappers around the server's signing functions.
+The actual production signing uses the server's RSA_SK key from server_config.py.
 """
 
 from Crypto.PublicKey import RSA
@@ -9,19 +12,30 @@ from Crypto.Hash import SHA256
 import hashlib
 import json
 import time
-from client_app.storage.localdb import store_receipt, init, connect
+import base64
 import os
+import sys
 
+# Add server directory to path to import server_config
+SERVER_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', 'server'))
+if SERVER_DIR not in sys.path:
+    sys.path.insert(0, SERVER_DIR)
 
-# Generate ledger RSA keys (server should persist and protect SK_ledger)
-def generate_ledger_keys(key_size=2048):
-    key = RSA.generate(key_size)
-    return key, key.publickey()
+try:
+    from server_config import RECEIPT_RSA_PRIV_PEM, RECEIPT_RSA_PUB_PEM
+    # Use the same RSA key that server.py uses for signing
+    RSA_SK = RSA.import_key(RECEIPT_RSA_PRIV_PEM)
+    RSA_PK = RSA.import_key(RECEIPT_RSA_PUB_PEM)
+    print("[LEDGER_CRYPTO] ✓ Using production RSA keys from server_config")
+except ImportError:
+    # Fallback for tests that don't have server_config
+    print("[LEDGER_CRYPTO] ⚠ server_config not found, generating test keys")
+    RSA_SK = RSA.generate(3072)
+    RSA_PK = RSA_SK.publickey()
 
-# In-memory keys (for demo). In production load from secure storage.
-SK_ledger_sign, PK_ledger_sign = generate_ledger_keys()
 
 def create_block_header(index, vote_hash, previous_hash, timestamp=None):
+    """Create a blockchain block header dictionary"""
     if timestamp is None:
         timestamp = time.time()
     return {
@@ -31,36 +45,57 @@ def create_block_header(index, vote_hash, previous_hash, timestamp=None):
         "previous_hash": str(previous_hash)
     }
 
+
 def canonical_json_bytes(data: dict) -> bytes:
     """
     Deterministic JSON bytes (sort keys) for hashing/signing.
+    Must match server.py's JSON serialization format exactly.
     """
     return json.dumps(data, sort_keys=True, separators=(',', ':')).encode()
 
+
 def sha256_of_dict(data: dict) -> bytes:
+    """Compute SHA-256 hash of a dictionary (deterministic JSON)"""
     return hashlib.sha256(canonical_json_bytes(data)).digest()
+
 
 def sign_block_header(block_header: dict) -> bytes:
     """
     Sign the SHA-256 of block header using RSA-PSS + SHA256.
-    Returns signature bytes.
+    Returns signature bytes (matching server.py implementation).
+    
+    Note: server.py returns base64 string, but tests expect bytes.
+    This function returns raw bytes for test compatibility.
     """
     msg_bytes = canonical_json_bytes(block_header)
     h = SHA256.new(msg_bytes)
-    signer = pss.new(SK_ledger_sign)
+    signer = pss.new(RSA_SK)
     signature = signer.sign(h)
     return signature
 
+
+def sign_block_header_base64(block_header: dict) -> str:
+    """
+    Sign block header and return base64 string (server.py compatible).
+    This matches the format stored in the database.
+    """
+    signature = sign_block_header(block_header)
+    return base64.b64encode(signature).decode()
+
+
 def verify_block_header_signature(block_header: dict, signature: bytes, public_key_pem: bytes = None) -> bool:
     """
-    Verify signature using either provided PEM public key or in-memory PK_ledger_sign.
+    Verify signature using either provided PEM public key or default RSA_PK.
+    Accepts signature as bytes.
     """
     msg_bytes = canonical_json_bytes(block_header)
     h = SHA256.new(msg_bytes)
+    
     if public_key_pem:
         pk = RSA.import_key(public_key_pem)
     else:
-        pk = PK_ledger_sign
+        pk = RSA_PK
+    
     try:
         verifier = pss.new(pk)
         verifier.verify(h, signature)
@@ -68,40 +103,26 @@ def verify_block_header_signature(block_header: dict, signature: bytes, public_k
     except Exception:
         return False
 
-def export_ledger_public_key_pem():
-    return PK_ledger_sign.export_key('PEM')
 
-def export_ledger_private_key_pem(password: bytes = None):
+def verify_block_signature_base64(block_header: dict, signature_b64: str) -> bool:
+    """
+    Verify signature from base64 string (server.py/database compatible).
+    This matches the format retrieved from the database.
+    """
+    try:
+        signature = base64.b64decode(signature_b64)
+        return verify_block_header_signature(block_header, signature)
+    except Exception:
+        return False
+
+
+def export_ledger_public_key_pem() -> bytes:
+    """Export the public key as PEM bytes"""
+    return RSA_PK.export_key('PEM')
+
+
+def export_ledger_private_key_pem(password: bytes = None) -> bytes:
+    """Export the private key as PEM bytes (optionally encrypted)"""
     if password:
-        return SK_ledger_sign.export_key('PEM', passphrase=password)
-    return SK_ledger_sign.export_key('PEM')
-
-def fetch_last_block(election_id: str, db_path=None):
-    if db_path is None:
-        db_path = os.path.join(os.path.dirname(__file__), '../../database/server_ledger.db')
-    """
-    Returns the last block's index and hash for a given election,
-    or (0, "0") if no blocks exist.
-    """
-    con = connect(db_path)
-    cur = con.execute(
-        "SELECT ledger_index, block_hash FROM receipts WHERE election_id=? ORDER BY ledger_index DESC LIMIT 1",
-        (election_id,)
-    )
-    row = cur.fetchone()
-    con.close()
-    if row:
-        return row[0], row[1]
-    else:
-        return 0, "0"  # Genesis block
-
-def store_block(vote_id: str, election_id: str, block_header: dict, signature: bytes, db_path=None):
-    if db_path is None:
-        db_path = os.path.join(os.path.dirname(__file__), '../../database/server_ledger.db')
-    """
-    Store a ledger block in the receipts table.
-    """
-    ledger_index = block_header["index"]
-    block_hash = hashlib.sha256(json.dumps(block_header, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
-    sig_hex = signature.hex()
-    store_receipt(vote_id, election_id, ledger_index, block_hash, sig_hex, db_path)
+        return RSA_SK.export_key('PEM', passphrase=password)
+    return RSA_SK.export_key('PEM')

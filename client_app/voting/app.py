@@ -18,12 +18,12 @@ import os
 ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 if ROOT_DIR not in sys.path:
     sys.path.insert(0, ROOT_DIR)
-from client_app.storage.localdb import init
+from client_app.storage.localdb import init, store_receipt
 
 # Import client_app modules
 try:
     # Prefer absolute package imports (works when running as module or via run_voter.ps1)
-    from client_app.auth.face_verify import capture_face_photo, detect_faces, draw_face_rectangles, capture_face_encoding, bgr_to_jpeg_base64
+    from client_app.auth.face_verify import capture_face_photo, detect_faces, draw_face_rectangles, capture_face_encoding, bgr_to_jpeg_base64, check_liveness
     from client_app.crypto.vote_crypto import prepare_vote_data, generate_vote_id, verify_vote_receipt
     from client_app.api_client import BallotGuardAPI
     from client_app.client_config import SERVER_BASE
@@ -786,7 +786,9 @@ class RegistrationFrame(ctk.CTkFrame):
                 "Instructions:\n"
                 "• Position your face clearly in the frame\n"
                 "• Wait for green rectangle around your face\n"
-                "• Press SPACE key to capture photo\n"
+                "• Press SPACE key to start capture\n"
+                "• BLINK NATURALLY for liveness detection (2 seconds)\n"
+                "• Photo will be captured after liveness check passes\n"
                 "• Press ESC key to cancel\n\n"
                 "Click OK to continue..."
             )
@@ -1440,13 +1442,27 @@ class VotingInterfaceFrame(ctk.CTkFrame):
                         
                     ledger_index = result.get("ledger_index")
                     block_hash = result.get("block_hash")
+                    
+                    # Store receipt locally for voter verification
+                    try:
+                        store_receipt(
+                            vote_id=receipt["vote_id"],
+                            election_id=receipt["election_id"],
+                            idx=receipt["ledger_index"],
+                            bhash=receipt["block_hash"],
+                            sig_b64=receipt["sig"]
+                        )
+                        print(f"[CLIENT] ✓ Receipt stored locally: vote_id={vote_id}, ledger_index={ledger_index}")
+                    except Exception as e:
+                        print(f"[CLIENT] ⚠ Warning: Could not store receipt locally: {e}")
+                    
                     voter_id = self.parent.user_data.get("verified_voter_id")
                     if voter_id and election_id:
                         voted_key = f"{election_id}_{voter_id}"
                         self.parent.user_data["voted_elections"].add(voted_key)
                     messagebox.showinfo(
                         "Vote Submitted Successfully",
-                        f"Your vote has been recorded!\n\nVote ID: {vote_id}\nCandidate: {candidate_name}\nLedger Index: {ledger_index}\nBlock Hash: {block_hash[:16]}...\n\nThank you for participating in the democratic process."
+                        f"Your vote has been recorded!\n\nVote ID: {vote_id}\nCandidate: {candidate_name}\nLedger Index: {ledger_index}\nBlock Hash: {block_hash[:16]}...\n\nReceipt saved for verification.\n\nThank you for participating in the democratic process."
                     )
                     self.parent.user_data["verified_voter_id"] = None
                     self.parent.user_data["selected_election"] = None

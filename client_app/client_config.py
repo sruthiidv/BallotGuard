@@ -1,5 +1,8 @@
 # client_app/client_config.py
-SERVER_BASE = "http://127.0.0.1:8443"
+# Change to https:// if server has SSL certificates (recommended for production)
+# For development without certificates, use http://
+SERVER_BASE = "https://127.0.0.1:8443"  # HTTPS mode (requires certificates)
+# SERVER_BASE = "http://127.0.0.1:8443"  # HTTP mode (development only)
 
 
 # Paste the PUBLIC key PEM once (safe to commit)

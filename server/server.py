@@ -18,7 +18,7 @@ import uuid
 import time
 from server_backend.crypto import sha_utils, paillier_server
 from server_backend.blockchain import blockchain as blockchain_mod
-from datetime import datetime
+
 import sqlite3
 
 # Requirements:
@@ -64,21 +64,39 @@ except Exception:
 
     face_recognition = _FallbackFaceRecog()
 
-try:
-    from Crypto.PublicKey import RSA
-    from Crypto.Signature import pss
-    from Crypto.Hash import SHA256
-    from server_config import RECEIPT_RSA_PRIV_PEM, RECEIPT_RSA_PUB_PEM, PAILLIER_N, PAILLIER_P, PAILLIER_Q
-    CRYPTO_AVAILABLE = True
-except Exception:
-    # Fallback: pycryptodome not available. Provide a non-cryptographic fallback
-    # signing function so the demo server can run. This is INSECURE and only for
-    # local demos when installing pycryptodome is not possible.
-    import hashlib
-    from server_config import RECEIPT_RSA_PRIV_PEM, RECEIPT_RSA_PUB_PEM, PAILLIER_N, PAILLIER_P, PAILLIER_Q
-    CRYPTO_AVAILABLE = False
+# Import cryptographic libraries (REQUIRED - no fallback)
+from Crypto.PublicKey import RSA
+from Crypto.Signature import pss
+from Crypto.Hash import SHA256
+from Crypto.Cipher import AES
+from Crypto.Random import get_random_bytes
+from Crypto.Protocol.KDF import PBKDF2
+from server_config import RECEIPT_RSA_PRIV_PEM, RECEIPT_RSA_PUB_PEM, PAILLIER_N, PAILLIER_P, PAILLIER_Q
 
 app = Flask(__name__)
+
+# Rate Limiting Setup
+try:
+    from flask_limiter import Limiter
+    from flask_limiter.util import get_remote_address
+    
+    limiter = Limiter(
+        app=app,
+        key_func=get_remote_address,
+        default_limits=["200 per hour", "50 per minute"],
+        storage_uri="memory://",
+    )
+    print("[SECURITY] ✓ Rate limiting enabled")
+except ImportError:
+    print("[SECURITY] ⚠ Flask-Limiter not installed. Rate limiting disabled.")
+    print("            Install with: pip install Flask-Limiter")
+    limiter = None
+
+# Face authentication lockout tracking
+# Format: {voter_id: [(timestamp, success_bool), ...]}
+AUTH_ATTEMPTS = {}
+AUTH_LOCKOUT_DURATION = 900  # 15 minutes in seconds
+MAX_AUTH_FAILURES = 3  # Lock after 3 failed attempts within 60 seconds
 
 # Party Symbols Dictionary - Indian Political Parties
 PARTY_SYMBOLS = {
@@ -91,20 +109,84 @@ PARTY_SYMBOLS = {
     "": "🗳️"              # Default ballot box
 }
 
-if CRYPTO_AVAILABLE:
-    RSA_SK = RSA.import_key(RECEIPT_RSA_PRIV_PEM)
-    RSA_PUB_PEM = RECEIPT_RSA_PUB_PEM  # returned to clients for verification
-    def sign_bytes_with_crypto(data_bytes):
-        h = SHA256.new(data_bytes)
-        sig = pss.new(RSA_SK).sign(h)
-        return base64.b64encode(sig).decode()
-else:
-    RSA_SK = None
-    RSA_PUB_PEM = RECEIPT_RSA_PUB_PEM
-    def sign_bytes_with_crypto(data_bytes):
-        # Insecure fallback: return base64(sha256(data)) as a placeholder signature
-        digest = hashlib.sha256(data_bytes).digest()
-        return base64.b64encode(digest).decode()
+# Initialize RSA keys for signing
+RSA_SK = RSA.import_key(RECEIPT_RSA_PRIV_PEM)
+RSA_PUB_PEM = RECEIPT_RSA_PUB_PEM  # returned to clients for verification
+
+def sign_bytes_with_crypto(data_bytes):
+    """Sign bytes using RSA-PSS with SHA-256"""
+    h = SHA256.new(data_bytes)
+    sig = pss.new(RSA_SK).sign(h)
+    sig_b64 = base64.b64encode(sig).decode()
+    print(f"[CRYPTO] ✓ Signed {len(data_bytes)} bytes -> signature {sig_b64[:32]}...")
+    return sig_b64
+
+def sign_block_header(block_header):
+    """Sign a blockchain block header using RSA-PSS"""
+    header_bytes = json.dumps(block_header, sort_keys=True, separators=(",", ":")).encode()
+    print(f"[CRYPTO] Signing block #{block_header.get('index')} header...")
+    return sign_bytes_with_crypto(header_bytes)
+
+def verify_block_signature(block_header, signature_b64):
+    """Verify a blockchain block signature using RSA-PSS"""
+    try:
+        header_bytes = json.dumps(block_header, sort_keys=True, separators=(",", ":")).encode()
+        h = SHA256.new(header_bytes)
+        sig = base64.b64decode(signature_b64)
+        pss.new(RSA_SK).verify(h, sig)
+        print(f"[CRYPTO] ✓ Block #{block_header.get('index')} signature VALID")
+        return True
+    except Exception as e:
+        print(f"[CRYPTO] ✗ Block #{block_header.get('index')} signature INVALID: {e}")
+        return False
+
+# Face encoding encryption setup
+# Generate encryption key from server secret (deterministic for same server)
+FACE_ENCRYPTION_KEY = PBKDF2("BallotGuard-FaceData-Secret-2025", b"biometric-salt", dkLen=32, count=100000)
+
+def encrypt_face_encoding(face_encoding_json):
+    """Encrypt face encoding JSON string using AES-256-GCM"""
+    try:
+        nonce = get_random_bytes(16)
+        cipher = AES.new(FACE_ENCRYPTION_KEY, AES.MODE_GCM, nonce=nonce)
+        ciphertext, tag = cipher.encrypt_and_digest(face_encoding_json.encode())
+        # Store as: base64(nonce || tag || ciphertext)
+        encrypted = base64.b64encode(nonce + tag + ciphertext).decode()
+        print(f"[CRYPTO] ✓ Face encoding encrypted ({len(face_encoding_json)} bytes)")
+        return encrypted
+    except Exception as e:
+        print(f"[CRYPTO] ✗ Face encoding encryption failed: {e}")
+        return None
+
+def decrypt_face_encoding(encrypted_b64):
+    """Decrypt face encoding from AES-256-GCM encrypted format"""
+    try:
+        data = base64.b64decode(encrypted_b64)
+        nonce = data[:16]
+        tag = data[16:32]
+        ciphertext = data[32:]
+        cipher = AES.new(FACE_ENCRYPTION_KEY, AES.MODE_GCM, nonce=nonce)
+        plaintext = cipher.decrypt_and_verify(ciphertext, tag)
+        return plaintext.decode()
+    except Exception as e:
+        print(f"[CRYPTO] ✗ Face encoding decryption failed: {e}")
+        return None
+
+def log_audit_event(event_type, user_id, election_id=None, details=None, success=True):
+    """Log security-relevant events to audit trail"""
+    try:
+        conn = get_db()
+        c = conn.cursor()
+        c.execute("""INSERT INTO audit_log 
+                     (event_type, user_id, election_id, details, success, ip_address, timestamp) 
+                     VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                  (event_type, user_id, election_id, details, 1 if success else 0, 
+                   request.remote_addr if request else "system", time.time()))
+        conn.commit()
+        conn.close()
+        print(f"[AUDIT] {event_type}: user={user_id}, election={election_id}, success={success}")
+    except Exception as e:
+        print(f"[AUDIT] ✗ Failed to log audit event: {e}")
 
 @app.route('/public-key', methods=['GET'])
 def get_public_key():
@@ -264,6 +346,7 @@ def init_voters_table():
         vote_hash TEXT,
         prev_hash TEXT,
         hash TEXT,
+        signature TEXT,
         ts REAL,
         PRIMARY KEY (election_id, ledger_index)
     )''')
@@ -276,6 +359,22 @@ def init_voters_table():
         last_auth_ts REAL,
         PRIMARY KEY (election_id, voter_id)
     )''')
+    
+    # Audit log table for security events
+    c.execute('''CREATE TABLE IF NOT EXISTS audit_log (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        event_type TEXT NOT NULL,
+        user_id TEXT,
+        election_id TEXT,
+        details TEXT,
+        success INTEGER DEFAULT 1,
+        ip_address TEXT,
+        timestamp REAL NOT NULL
+    )''')
+    c.execute('CREATE INDEX IF NOT EXISTS idx_audit_timestamp ON audit_log(timestamp)')
+    c.execute('CREATE INDEX IF NOT EXISTS idx_audit_user ON audit_log(user_id)')
+    c.execute('CREATE INDEX IF NOT EXISTS idx_audit_event ON audit_log(event_type)')
+    
     conn.commit()
     conn.close()
 init_voters_table()
@@ -312,6 +411,24 @@ def ensure_encrypted_votes_candidate_column():
     conn.close()
 
 ensure_encrypted_votes_candidate_column()
+
+
+def ensure_ledger_blocks_signature_column():
+    """Add signature column to ledger_blocks table if it doesn't exist"""
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("PRAGMA table_info(ledger_blocks)")
+    cols = [row[1] for row in c.fetchall()]
+    if 'signature' not in cols:
+        try:
+            c.execute("ALTER TABLE ledger_blocks ADD COLUMN signature TEXT")
+            conn.commit()
+            print("Added signature column to ledger_blocks table")
+        except Exception as e:
+            print(f"Error adding signature column: {e}")
+    conn.close()
+
+ensure_ledger_blocks_signature_column()
 
 
 def init_elections_table():
@@ -567,6 +684,7 @@ def election_action(election_id, action):
 
 # Voters endpoints (Admin)
 @app.route('/voters/enroll', methods=['POST'])
+@limiter.limit("10 per hour") if limiter else lambda f: f
 def enroll_voter():
     """Enroll a new voter - now using SQLite for persistence"""
     try:
@@ -588,13 +706,22 @@ def enroll_voter():
         except Exception as e:
             return jsonify({"error":{"code":"FACE_PARSE_FAIL","message":str(e)}}), 400
 
-        # Store in SQLite with name
+        # Store in SQLite with encrypted face encoding
+        face_encoding_json = json.dumps(enc.tolist())
+        encrypted_encoding = encrypt_face_encoding(face_encoding_json)
+        
+        if not encrypted_encoding:
+            return jsonify({"error":{"code":"ENCRYPTION_FAILED","message":"Failed to encrypt biometric data"}}), 500
+        
         conn = get_db()
         c = conn.cursor()
         c.execute("INSERT INTO voters (voter_id, name, face_encoding, status, created_at) VALUES (?, ?, ?, ?, ?)",
-                  (voter_id, voter_name, json.dumps(enc.tolist()), "pending", time.time()))
+                  (voter_id, voter_name, encrypted_encoding, "pending", time.time()))
         conn.commit()
         conn.close()
+        
+        # Audit log
+        log_audit_event("VOTER_ENROLLED", voter_id, None, f"name={voter_name}", True)
 
         # NOTE: Do NOT auto-approve voters here. Voters are created with status 'pending'
         # and must be approved by an administrator via the admin API (/voters/<id>/approve).
@@ -779,8 +906,9 @@ def get_voter_election_status(voter_id, election_id):
 
 # Auth & OVT endpoints (Booth)
 @app.route('/auth/face/verify', methods=['POST'])
+@limiter.limit("20 per minute") if limiter else lambda f: f
 def verify_face():
-    """Face verification - real encoding match using face_recognition"""
+    """Face verification - real encoding match using face_recognition with lockout protection"""
     try:
         data = request.json
         voter_id = data.get("voter_id")
@@ -789,6 +917,30 @@ def verify_face():
 
         if not voter_id or not probe_encoding:
             return jsonify({"error":{"code":"NO_DATA","message":"Missing voter_id or face_encoding"}}), 400
+
+        # Check for authentication lockout
+        current_time = time.time()
+        if voter_id in AUTH_ATTEMPTS:
+            # Clean old attempts (older than 60 seconds)
+            AUTH_ATTEMPTS[voter_id] = [(t, s) for t, s in AUTH_ATTEMPTS[voter_id] if current_time - t < 60]
+            
+            # Count recent failures
+            recent_failures = [t for t, s in AUTH_ATTEMPTS[voter_id] if not s]
+            if len(recent_failures) >= MAX_AUTH_FAILURES:
+                # Check if still locked out
+                oldest_failure = min(recent_failures)
+                if current_time - oldest_failure < AUTH_LOCKOUT_DURATION:
+                    remaining = int(AUTH_LOCKOUT_DURATION - (current_time - oldest_failure))
+                    print(f"[AUTH] ⚠ LOCKOUT: Voter {voter_id} locked for {remaining}s (failed attempts: {len(recent_failures)})")
+                    return jsonify({
+                        "error": {
+                            "code": "ACCOUNT_LOCKED",
+                            "message": f"Too many failed attempts. Account locked for {remaining} seconds. Contact administrator."
+                        }
+                    }), 429
+                else:
+                    # Lockout expired, clear attempts
+                    AUTH_ATTEMPTS[voter_id] = []
 
         # Fetch voter from SQLite
         conn = get_db()
@@ -814,14 +966,30 @@ def verify_face():
             return jsonify({"error":{"code":"ALREADY_VOTED","message":"Already voted in this election"}}), 409
 
         try:
-            stored = np.asarray(json.loads(row["face_encoding"]), dtype=float)
+            # Decrypt face encoding
+            decrypted_encoding = decrypt_face_encoding(row["face_encoding"])
+            if not decrypted_encoding:
+                log_audit_event("FACE_AUTH_FAILED", voter_id, election_id, "Decryption failed", False)
+                return jsonify({"error":{"code":"DECRYPTION_FAILED","message":"Failed to decrypt biometric data"}}), 500
+            
+            stored = np.asarray(json.loads(decrypted_encoding), dtype=float)
             probe = np.asarray(probe_encoding, dtype=float)
             matches = face_recognition.compare_faces([stored], probe, tolerance=0.5)
             distance = float(face_recognition.face_distance([stored], probe)[0])
             passed = bool(matches[0])
             confidence = max(0.0, 1.0 - distance)  # heuristic
         except Exception as e:
+            log_audit_event("FACE_AUTH_ERROR", voter_id, election_id, str(e), False)
             return jsonify({"error":{"code":"FACE_COMPARE_FAIL","message":str(e)}}), 500
+
+        # Track authentication attempt
+        if voter_id not in AUTH_ATTEMPTS:
+            AUTH_ATTEMPTS[voter_id] = []
+        AUTH_ATTEMPTS[voter_id].append((current_time, passed))
+        print(f"[AUTH] Face verification: voter_id={voter_id}, result={'PASS' if passed else 'FAIL'}, confidence={confidence:.3f}, total_attempts={len(AUTH_ATTEMPTS[voter_id])}")
+        
+        # Audit log
+        log_audit_event("FACE_AUTH", voter_id, election_id, f"confidence={confidence:.3f}", passed)
 
         # Update last_auth_ts in DB
         conn2 = get_db()
@@ -836,6 +1004,7 @@ def verify_face():
         return jsonify({"error":{"code":"AUTH_FAIL","message":str(e)}}), 500
 
 @app.route('/ovt/issue', methods=['POST'])
+@limiter.limit("30 per hour") if limiter else lambda f: f
 def issue_ovt():
     """Issue OVT token - now using SQLite for persistence"""
     try:
@@ -890,8 +1059,13 @@ def issue_ovt():
         conn.close()
 
         # Real RSA-PSS signature of the canonical OVT JSON
+        print(f"[OVT] Issuing OVT for voter_id={voter_id}, election_id={election_id}, ovt_uuid={ovt_uuid}")
         ovt_bytes = json.dumps(ovt, sort_keys=True, separators=(",", ":")).encode()
         server_sig = sign_bytes_with_crypto(ovt_bytes)
+        print(f"[OVT] ✓ OVT signed and ready for client")
+        
+        # Audit log
+        log_audit_event("OVT_ISSUED", voter_id, election_id, f"ovt_uuid={ovt_uuid}", True)
 
         return jsonify({
             "ovt": ovt,
@@ -908,6 +1082,7 @@ def issue_ovt():
 
 # Votes endpoint (Booth)
 @app.route('/votes', methods=['POST'])
+@limiter.limit("10 per hour") if limiter else lambda f: f
 def cast_vote():
     """Cast a vote - now using SQLite for persistence"""
     try:
@@ -1028,6 +1203,15 @@ def cast_vote():
         c.execute("INSERT INTO ledger_blocks (election_id, ledger_index, vote_hash, prev_hash, hash, ts) VALUES (?, ?, ?, ?, ?, ?)",
                   (election_id, ledger_index, vote_hash, prev_hash, block_hash, block_header["timestamp"]))
 
+        # Sign the block header using RSA-PSS (critical security feature)
+        print(f"[VOTE] Signing blockchain block for vote_id={vote_id}, ledger_index={ledger_index}")
+        block_signature = sign_block_header(block_header)
+        
+        # Update ledger block with signature
+        c.execute("UPDATE ledger_blocks SET signature=? WHERE election_id=? AND ledger_index=?",
+                  (block_signature, election_id, ledger_index))
+        print(f"[VOTE] ✓ Block signature stored in database")
+
         # Mark OVT as spent
         c.execute("UPDATE ovt_tokens SET status=? WHERE ovt_uuid=?", ("spent", ovt_uuid))
 
@@ -1038,6 +1222,9 @@ def cast_vote():
         c2.execute("UPDATE voter_election_status SET voted_flag=1 WHERE election_id=? AND voter_id=?", (election_id, voter_id))
         conn2.commit()
         conn2.close()
+        
+        # Audit log
+        log_audit_event("VOTE_CAST", voter_id, election_id, f"vote_id={vote_id},candidate_id={candidate_id},ledger_index={ledger_index}", True)
 
         # Return an RSA-PSS signed receipt (restore original logic)
         receipt_payload = {
@@ -1046,9 +1233,11 @@ def cast_vote():
             "ledger_index": ledger_index,
             "block_hash": block_hash
         }
-        # Compute signature (use crypto if available, otherwise demo fallback)
+        # Compute receipt signature
+        print(f"[RECEIPT] Generating signed receipt for vote_id={vote_id}")
         payload_bytes = json.dumps(receipt_payload, sort_keys=True, separators=(",", ":")).encode()
         receipt_sig = sign_bytes_with_crypto(payload_bytes)
+        print(f"[RECEIPT] ✓ Receipt signed and ready for client")
 
         print(f"DEBUG: Vote stored and signed receipt ready. vote_id={vote_id}, ledger_index={ledger_index}")
         return jsonify({
@@ -1229,16 +1418,16 @@ def verify_blockchain(election_id):
                 "message": "Election not found"
             }), 404
 
-        # Get all blocks and their details
+        # Get all blocks and their details (including signatures)
         c.execute("""
-            SELECT lb.ledger_index, lb.vote_hash, lb.prev_hash, lb.hash, lb.ts,
+            SELECT lb.ledger_index, lb.vote_hash, lb.prev_hash, lb.hash, lb.ts, lb.signature,
                    COUNT(ev.vote_id) as votes_in_block
             FROM ledger_blocks lb
             LEFT JOIN encrypted_votes ev ON 
                 ev.election_id = lb.election_id AND 
                 ev.ledger_index = lb.ledger_index
             WHERE lb.election_id = ?
-            GROUP BY lb.ledger_index, lb.vote_hash, lb.prev_hash, lb.hash, lb.ts
+            GROUP BY lb.ledger_index, lb.vote_hash, lb.prev_hash, lb.hash, lb.ts, lb.signature
             ORDER BY lb.ledger_index""", (election_id,))
         rows = c.fetchall()
         block_rows = [dict(row) for row in rows]
@@ -1256,11 +1445,12 @@ def verify_blockchain(election_id):
         c.execute("SELECT COUNT(*) as count FROM encrypted_votes WHERE election_id = ?", (election_id,))
         total_votes = c.fetchone()["count"]
 
-        # Verify blockchain integrity
+        # Verify blockchain integrity (hash chain + signatures)
         blocks = []
         prev_hash = "GENESIS"
         is_valid = True
         invalid_block = None
+        signature_failures = []
 
         for row in block_rows:
             # Create block object for validation
@@ -1272,14 +1462,38 @@ def verify_blockchain(election_id):
             )
 
             # Check hash continuity
-            if row["prev_hash"] != prev_hash:
+            hash_chain_valid = (row["prev_hash"] == prev_hash)
+            if not hash_chain_valid:
                 is_valid = False
-                invalid_block = row["ledger_index"]
+                if invalid_block is None:
+                    invalid_block = row["ledger_index"]
 
             # Check block hash validity
-            if row["hash"] != block_obj.hash:
+            hash_valid = (row["hash"] == block_obj.hash)
+            if not hash_valid:
                 is_valid = False
-                invalid_block = row["ledger_index"]
+                if invalid_block is None:
+                    invalid_block = row["ledger_index"]
+
+            # CRITICAL SECURITY: Verify block signature
+            signature_valid = False
+            if row["signature"]:
+                try:
+                    block_header = {
+                        "index": row["ledger_index"],
+                        "timestamp": row["ts"],
+                        "vote_hash": row["vote_hash"],
+                        "previous_hash": row["prev_hash"]
+                    }
+                    signature_valid = verify_block_signature(block_header, row["signature"])
+                except Exception as e:
+                    print(f"WARNING: Block {row['ledger_index']} signature verification failed: {e}")
+                    signature_failures.append({
+                        "block": row["ledger_index"],
+                        "error": str(e)
+                    })
+            else:
+                print(f"WARNING: Block {row['ledger_index']} has no signature (legacy block)")
 
             # Add block to response
             blocks.append({
@@ -1287,7 +1501,9 @@ def verify_blockchain(election_id):
                 "hash": row["hash"],
                 "timestamp": row["ts"],
                 "votes_in_block": row["votes_in_block"],
-                "is_valid": row["prev_hash"] == prev_hash and row["hash"] == block_obj.hash
+                "is_valid": hash_chain_valid and hash_valid,
+                "signature_valid": signature_valid,
+                "has_signature": bool(row["signature"])
             })
 
             prev_hash = row["hash"]
@@ -1299,6 +1515,7 @@ def verify_blockchain(election_id):
             "total_blocks": len(blocks),
             "total_votes": total_votes,
             "blocks": blocks,
+            "signature_failures": signature_failures,
             "election": {
                 "id": election["election_id"],
                 "name": election["name"],
