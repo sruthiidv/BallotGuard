@@ -641,10 +641,15 @@
           data.status === "valid" ? "#2e7d32" : "#c62828";
 
         // Count signature statistics
-        const signedBlocks = data.blocks?.filter(b => b.has_signature).length || 0;
-        const validSigs = data.blocks?.filter(b => b.signature_valid).length || 0;
+        const signedBlocks =
+          data.blocks?.filter((b) => b.has_signature).length || 0;
+        const validSigs =
+          data.blocks?.filter((b) => b.signature_valid).length || 0;
         const sigStatus = document.getElementById("signature-status");
-        if (signedBlocks === data.total_blocks && validSigs === data.total_blocks) {
+        if (
+          signedBlocks === data.total_blocks &&
+          validSigs === data.total_blocks
+        ) {
           sigStatus.textContent = "ALL VALID ✅";
           sigStatus.style.color = "#2e7d32";
         } else if (signedBlocks === 0) {
@@ -652,7 +657,8 @@
           sigStatus.style.color = "#f57c00";
         } else {
           sigStatus.textContent = `${validSigs}/${signedBlocks} ✓`;
-          sigStatus.style.color = validSigs === signedBlocks ? "#2e7d32" : "#c62828";
+          sigStatus.style.color =
+            validSigs === signedBlocks ? "#2e7d32" : "#c62828";
         }
 
         // Update status message
@@ -690,16 +696,18 @@
                       block.votes_in_block || 0
                     }</div>
                     <div class="block-signature ${
-                      block.has_signature 
-                        ? (block.signature_valid ? 'valid' : 'invalid')
-                        : 'missing'
+                      block.has_signature
+                        ? block.signature_valid
+                          ? "valid"
+                          : "invalid"
+                        : "missing"
                     }">
                         ${
                           block.has_signature
-                            ? (block.signature_valid 
-                                ? '🔒 Signature: Valid' 
-                                : '⚠️ Signature: Invalid')
-                            : '⚠️ No Signature'
+                            ? block.signature_valid
+                              ? "🔒 Signature: Valid"
+                              : "⚠️ Signature: Invalid"
+                            : "⚠️ No Signature"
                         }
                     </div>
                     <div class="block-hash" title="Full Hash: ${block.hash}">
