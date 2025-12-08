@@ -638,7 +638,7 @@ Input: Probe image I_probe, stored encoding E_stored
   - 3 failures within 60 seconds → 15-minute lockout
   - Prevents brute-force authentication attacks
   - Cleared after successful authentication
-- **Attack Resistance**: 
+- **Attack Resistance**:
   - **Photo Attacks**: Mitigated by liveness detection (requires live blink)
   - **Replay Attacks**: Prevented by real-time video capture requirement
   - **Brute Force**: Blocked by authentication lockout + rate limiting
@@ -670,7 +670,7 @@ Input: Probe image I_probe, stored encoding E_stored
   - 3 failures within 60 seconds → 15-minute lockout
   - Prevents brute-force authentication attacks
   - Cleared after successful authentication
-- **Attack Resistance**: 
+- **Attack Resistance**:
   - **Photo Attacks**: Mitigated by liveness detection (requires live blink)
   - **Replay Attacks**: Prevented by real-time video capture requirement
   - **Brute Force**: Blocked by authentication lockout + rate limiting
@@ -713,7 +713,6 @@ BallotGuard uses a 128-dimensional embedding from dlib's ResNet model. To determ
   - Three-failure authentication lockout (15-minute penalty)
   - Flask-Limiter rate limiting (50 requests/minute per IP)
   - Comprehensive audit logging of all authentication attempts
-  
 - **Remaining Vulnerabilities**:
   - Advanced 3D face models or high-quality video replay
   - Infrared or depth-based spoofing detection not implemented
@@ -1211,7 +1210,7 @@ BallotGuard implements a comprehensive defense-in-depth security architecture wi
 #### 6) Blink-Based Liveness Detection
 
 - **Algorithm**: Eye Aspect Ratio (EAR) using dlib 68-point facial landmarks
-- **Formula**: EAR = (||p2 - p6|| + ||p3 - p5||) / (2 * ||p1 - p4||)
+- **Formula**: EAR = (||p2 - p6|| + ||p3 - p5||) / (2 \* ||p1 - p4||)
 - **Threshold**: EAR < 0.25 indicates blink
 - **Duration**: 3-second monitoring window, ≥1 blink required
 - **Limitations**: Vulnerable to video replay, high-quality 3D face models
@@ -2273,6 +2272,7 @@ This paper presented BallotGuard, a research prototype demonstrating the technic
 2. **Privacy-Preserving Tallying**: Demonstrated practical homomorphic vote aggregation with <30 second tallying time, eliminating need to decrypt individual ballots while protecting ballot secrecy even from election administrators
 
 3. **Defense-in-Depth Security**: Implemented 8-layer security architecture including:
+
    - Blink-based liveness detection (EAR algorithm)
    - AES-256-GCM face encoding encryption
    - Flask-Limiter rate limiting (200/hour, 50/minute)
@@ -2289,7 +2289,6 @@ This paper presented BallotGuard, a research prototype demonstrating the technic
 6. **Practical Performance**: Achieved 524ms vote submission latency, <15ms cryptographic operations, and sub-second biometric authentication on commodity hardware
 
 7. **Complete Prototype**: Delivered ~12,000 lines of production-quality code with GUI clients, Flask REST API (21 endpoints), SQLite databases (8 tables), and admin panel with blockchain visualization
-
 
 **Research Insights**:
 
@@ -2308,7 +2307,6 @@ BallotGuard contributes to democratic processes by providing:
 - **Transparency**: Blockchain verification enables independent audits by stakeholders through web interface
 - **Educational Value**: Open-source implementation serves as learning resource for e-voting research community
 
-
 **Limitations Acknowledged**:
 
 Despite implementing comprehensive security controls, BallotGuard remains a research prototype with limitations:
@@ -2323,18 +2321,21 @@ Despite implementing comprehensive security controls, BallotGuard remains a rese
 **Remaining Challenges for Production Deployment**:
 
 1. **Security Hardening**:
+
    - Hardware Security Module (HSM) integration for Paillier private key protection
    - Independent third-party security audit (penetration testing, code review)
    - Advanced liveness detection (infrared imaging, 3D depth sensors, challenge-response)
    - Formal cryptographic protocol verification (Tamarin/ProVerif)
 
 2. **Regulatory Compliance**:
+
    - Accessibility standards (WCAG 2.1 AA for vision/motor impaired voters)
    - Data protection regulations (GDPR, CCPA for biometric data)
    - Election authority certification (EAC, state-level compliance)
    - Disability accommodations (screen readers, alternative authentication)
 
 3. **Scalability Enhancements**:
+
    - PostgreSQL migration (from SQLite)
    - Load balancing for >10,000 concurrent voters
    - Distributed blockchain consensus (beyond single-server append)
@@ -2345,22 +2346,24 @@ Despite implementing comprehensive security controls, BallotGuard remains a rese
    - Public bulletin board for encrypted vote publication
    - Universal verifiability (anyone can verify correct tallying)
 
-
 **Deployment Readiness**:
 
 **Current prototype status** (research/demonstration purposes):
+
 - Proof-of-concept for cryptographic integration
 - Suitable for controlled academic experiments (university student council elections, organizational voting)
 - Educational tool for studying e-voting systems architecture
 - Foundation for production system development with security baseline (rate limiting, liveness detection, audit logging, encryption, block signing)
 
 **Appropriate use cases** (with institutional oversight):
+
 - University student government elections (100-1000 voters)
 - Organizational internal voting with informed participants
 - Academic committee decisions in controlled settings
 - Low-stakes polling and preference gathering in trusted environments
 
 **Not suitable for** (requires fundamental redesign + certification):
+
 - National or state-level public elections (scale, legal requirements, coercion resistance)
 - Legally binding government referendums (regulatory compliance, EAC certification)
 - High-stakes financial voting (requires formal third-party security audit and insurance)
@@ -2372,7 +2375,6 @@ Despite implementing comprehensive security controls, BallotGuard remains a rese
 - **Defense-in-Depth Works**: No single security control prevents all attacks; layered defenses (lockout + rate limiting + liveness + audit logging) significantly raise attacker cost
 - **Audit Logging is Essential**: 96% of security incidents discovered through audit log analysis during testing phase
 - **User Experience Matters**: Three-failure lockout initially caused voter frustration; tuning to 15-minute penalty balanced security and usability
-
 
 **Concluding Remarks**:
 
