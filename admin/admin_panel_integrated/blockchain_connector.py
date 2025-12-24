@@ -9,51 +9,39 @@ class BlockchainConnector:
         self.flask_server_url = flask_server_url
         self.chain_broken = False
         
-        print("📝 Blockchain connector initialized (simulation mode)")
+        print("📝 Blockchain connector initialized")
+        print(f"🔗 Connecting to server: {flask_server_url}")
     
     def get_blockchain_info(self):
-        """Get blockchain information"""
+        """Get blockchain information from server"""
         try:
-            # Try to get info from server
             response = requests.get(f"{self.flask_server_url}/blockchain/info", timeout=5)
-            if response.status_code == 200:
-                return response.json()
-        except:
-            pass
-            
-        # Return mock data
-        return {
-            "total_blocks": 8,
-            "blockchain_file_exists": True,
-            "mode": "mock",
-            "chain_broken": self.chain_broken,
-            "integrity_verified": not self.chain_broken,
-            "votes_in_chain": 7,
-            "chain_size_bytes": 2048
-        }
+            response.raise_for_status()
+            data = response.json()
+            # Merge local chain_broken state with server data
+            data['chain_broken'] = self.chain_broken
+            data['integrity_verified'] = not self.chain_broken
+            return data
+        except requests.RequestException as e:
+            raise ConnectionError(f"Failed to get blockchain info from server: {e}")
     
     def get_recent_blocks(self, limit=10):
-        """Get recent blockchain blocks"""
+        """Get recent blockchain blocks from server"""
         try:
-            # Try to get from server
-            response = requests.get(f"{self.flask_server_url}/blockchain/blocks", timeout=5)
-            if response.status_code == 200:
-                return response.json()
-        except:
-            pass
-            
-        # Return mock blocks
-        return [
-            {
-                "index": i,
-                "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
-                "hash": f"mock_hash_{i}..." if not self.chain_broken else "COMPROMISED",
-                "previous_hash": f"prev_{i-1}..." if i > 1 else "GENESIS",
-                "status": "COMPROMISED" if self.chain_broken else "VALID",
-                "vote_hash": f"vote_hash_{i}..."
-            }
-            for i in range(max(1, 8 - limit + 1), 9)
-        ]
+            response = requests.get(
+                f"{self.flask_server_url}/blockchain/blocks?limit={limit}",
+                timeout=5
+            )
+            response.raise_for_status()
+            blocks = response.json()
+            # Update status based on local chain_broken flag
+            if self.chain_broken:
+                for block in blocks:
+                    block['status'] = 'COMPROMISED'
+                    block['hash'] = 'COMPROMISED'
+            return blocks
+        except requests.RequestException as e:
+            raise ConnectionError(f"Failed to get blockchain blocks from server: {e}")
     
     def break_chain_on_admin_modification(self, modification_type):
         """Break chain when admin tries to modify blockchain"""
@@ -67,16 +55,21 @@ class BlockchainConnector:
         }
     
     def get_chain_status(self):
-        """Get current chain status"""
-        return {
-            "broken": self.chain_broken,
-            "integrity_verified": not self.chain_broken,
-            "total_blocks": 8,
-            "status": "COMPROMISED" if self.chain_broken else "SECURE"
-        }
+        """Get current chain status from server"""
+        try:
+            response = requests.get(f"{self.flask_server_url}/blockchain/status", timeout=5)
+            response.raise_for_status()
+            data = response.json()
+            # Merge local chain_broken state with server data
+            data['broken'] = self.chain_broken
+            data['integrity_verified'] = not self.chain_broken
+            data['status'] = "COMPROMISED" if self.chain_broken else data.get('status', 'SECURE')
+            return data
+        except requests.RequestException as e:
+            raise ConnectionError(f"Failed to get chain status from server: {e}")
     
     def get_vote_verification_info(self, vote_hash=None):
-        """Get vote verification information"""
+        """Get vote verification information from server"""
         if self.chain_broken:
             return {
                 "verified": False,
@@ -84,13 +77,19 @@ class BlockchainConnector:
                 "status": "COMPROMISED"
             }
         
-        return {
-            "blockchain_intact": not self.chain_broken,
-            "total_verified_votes": 7,
-            "verification_method": "SHA-256 cryptographic hashing",
-            "last_verification": time.strftime("%Y-%m-%d %H:%M:%S"),
-            "status": "VERIFIED" if not self.chain_broken else "COMPROMISED"
-        }
+        try:
+            endpoint = f"{self.flask_server_url}/blockchain/verify"
+            if vote_hash:
+                endpoint += f"?vote_hash={vote_hash}"
+            
+            response = requests.get(endpoint, timeout=5)
+            response.raise_for_status()
+            data = response.json()
+            # Add local chain state
+            data['blockchain_intact'] = not self.chain_broken
+            return data
+        except requests.RequestException as e:
+            raise ConnectionError(f"Failed to get verification info from server: {e}")
 
 if __name__ == "__main__":
     bc = BlockchainConnector()

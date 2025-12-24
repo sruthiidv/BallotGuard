@@ -1364,7 +1364,8 @@ class VotingInterfaceFrame(ctk.CTkFrame):
     
     def submit_vote(self):
         """Submit the vote to server with Paillier encryption, server receipt, and RSA signature verification."""
-        if not hasattr(self, 'selected_candidate_index') or not self.selected_candidate_index:
+        # Must allow index 0, so check for attribute existence and None/empty explicitly
+        if not hasattr(self, 'selected_candidate_index') or self.selected_candidate_index in (None, ""):
             messagebox.showerror("Error", "Please select a candidate")
             return
         election = self.parent.user_data.get("selected_election", {})
@@ -1387,7 +1388,8 @@ class VotingInterfaceFrame(ctk.CTkFrame):
                 from client_app.client_config import PAILLIER_N
                 from phe import paillier
                 paillier_pubkey = paillier.PaillierPublicKey(PAILLIER_N)
-                encrypted_vote_obj = paillier_encrypt(paillier_pubkey, idx)
+                # Encrypt a single vote (value 1), not the candidate index
+                encrypted_vote_obj = paillier_encrypt(paillier_pubkey, 1)
                 # Serialize EncryptedNumber for JSON
                 encrypted_vote = {
                     "ciphertext": str(encrypted_vote_obj.ciphertext()),

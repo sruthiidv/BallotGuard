@@ -32,8 +32,8 @@ class AdminPanelApp:
 
         ttk.Label(self.header_frame, text="BallotGuard Admin Panel", font=("Arial", 20, "bold")).pack(side="left")
 
-        db_status_text = "DATABASE CONNECTED" if getattr(self.database, "db_available", False) else "DATABASE MOCK MODE"
-        db_status_style = "success" if getattr(self.database, "db_available", False) else "warning"
+        db_status_text = "DATABASE CONNECTED"
+        db_status_style = "success"
         ttk.Label(self.header_frame, text=db_status_text, bootstyle=db_status_style).pack(side="right", padx=15)
 
         # --- Notebook (tabs) ---
@@ -105,7 +105,7 @@ class AdminPanelApp:
         success, message, elections = self.database.get_elections()
         elections = elections if success and elections else []
 
-        # Build dropdown options like "ID:1 - Student Council Election 2024 (MOCK)"
+        # Build dropdown options"
         options = [f"ID:{e['id']} - {e.get('title', 'Untitled')}" for e in elections]
         self.election_map = {f"ID:{e['id']} - {e.get('title', 'Untitled')}": e for e in elections}
 
@@ -143,11 +143,11 @@ class AdminPanelApp:
         self.result_text.insert(tk.END, f"Status : {election.get('status')}\n\n")
         self.result_text.insert(tk.END, "Candidate                         | Votes\n")
         self.result_text.insert(tk.END, "-"*50 + "\n")
-        # Use 'votes' if provided, else make a mock distribution
+        # Use actual vote count from election data
         base_votes = election.get('votes_cast', 0)
-        # simple mock: distribute votes evenly
+        # Distribute votes evenly
         if candidates:
-            share = base_votes // len(candidates) if base_votes else 100  # default 100 each
+            share = base_votes // len(candidates) if base_votes else 0
             for c in candidates:
                 name = c.get('name', 'Unnamed')
                 self.result_text.insert(tk.END, f"{name:<33} | {share}\n")
@@ -176,7 +176,7 @@ class AdminPanelApp:
         if not election:
             messagebox.showwarning("No election", "Please select an election.")
             return
-        # Try to get tallied results from the database connector (or mock)
+        # Try to get tallied results from the database connector
         try:
             eid = election.get('id')
             ok, res = self.database.get_election_results(eid)
@@ -228,17 +228,31 @@ class AdminPanelApp:
             messagebox.showwarning("No election", "Please select an election.")
             return
 
-        # Save a small JSON with the results (mock)
+        # Fetch real tallied results from server
+        try:
+            eid = election.get('id')
+            ok, res = self.database.get_election_results(eid)
+            if not ok:
+                messagebox.showerror("Error", f"Failed to fetch results: {res}")
+                return
+        except Exception as e:
+            messagebox.showerror("Error", f"Could not retrieve results: {e}")
+            return
+
         default_name = f"results_election_{election.get('id')}.json"
         path = filedialog.asksaveasfilename(defaultextension=".json", initialfile=default_name,
                                             filetypes=[("JSON files", "*.json"), ("All files", "*.*")])
         if path:
-            # Build a simple results object
+            # Export complete results with tallies
             results = {
                 "election_id": election.get('id'),
                 "title": election.get('title'),
                 "status": election.get('status'),
-                "candidates": election.get('candidates', [])
+                "total_votes": res.get('total_votes', 0),
+                "eligible_voters": res.get('eligible_voters', 0),
+                "turnout_percentage": res.get('turnout_percentage', 0.0),
+                "candidates": res.get('results', []),
+                "winner": res.get('winner')
             }
             with open(path, "w", encoding="utf-8") as f:
                 json.dump(results, f, indent=2)
@@ -254,25 +268,14 @@ class AdminPanelApp:
             messagebox.showwarning("No election", "Please select an election.")
             return
 
-        # Simulate finalization: call manager if available else update mock status
+        # Call manager to finalize election
         try:
-            # Prefer manager method if available
             fn = getattr(self.election_manager, "finalize_election", None)
             if callable(fn):
                 ok, msg = fn(election.get('id'))
             else:
-                # fallback: update mock in database connector if running in mock
-                if not getattr(self.database, "db_available", False):
-                    # mutate mock
-                    for e in self.database.mock_elections:
-                        if e['id'] == election['id']:
-                            e['status'] = "FINALIZED"
-                            ok, msg = True, "Finalized (mock)"
-                            break
-                    else:
-                        ok, msg = False, "Election not found (mock)"
-                else:
-                    ok, msg = False, "Finalize not implemented in manager"
+                ok, msg = False, "Finalize not implemented in manager"
+            
             if ok:
                 messagebox.showinfo("Finalized", msg)
                 self.refresh_elections()
