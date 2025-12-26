@@ -134,25 +134,45 @@ class AdminPanelApp:
             self.set_result_controls_state(enabled=True)
 
     def populate_results_text(self, election):
-        """Show mock/simple aggregated results in the text widget"""
+        """Show real aggregated results in the text widget"""
         self.result_text.config(state="normal")
         self.result_text.delete("1.0", tk.END)
-        # Here we show the candidate names and mock votes (from election or fixed)
-        candidates = election.get('candidates', [])
+        
         self.result_text.insert(tk.END, f"Election: {election.get('title')}\n")
         self.result_text.insert(tk.END, f"Status : {election.get('status')}\n\n")
-        self.result_text.insert(tk.END, "Candidate                         | Votes\n")
-        self.result_text.insert(tk.END, "-"*50 + "\n")
-        # Use actual vote count from election data
-        base_votes = election.get('votes_cast', 0)
-        # Distribute votes evenly
-        if candidates:
-            share = base_votes // len(candidates) if base_votes else 0
-            for c in candidates:
-                name = c.get('name', 'Unnamed')
-                self.result_text.insert(tk.END, f"{name:<33} | {share}\n")
-        else:
-            self.result_text.insert(tk.END, "No candidates found.\n")
+        
+        # Fetch real tallied results from database
+        try:
+            eid = election.get('id')
+            ok, res = self.database.get_election_results(eid)
+            
+            if ok and res:
+                self.result_text.insert(tk.END, "Candidate                         | Votes      | Percentage\n")
+                self.result_text.insert(tk.END, "-"*65 + "\n")
+                
+                results_list = res.get('results', []) or []
+                for r in results_list:
+                    name = r.get('name', 'Unknown')
+                    votes = r.get('votes', 0)
+                    percentage = r.get('percentage', 0.0)
+                    self.result_text.insert(tk.END, f"{name:<33} | {votes:<10} | {percentage:.1f}%\n")
+                
+                if not results_list:
+                    self.result_text.insert(tk.END, "No results available yet.\n")
+            else:
+                # Fallback: show candidates without vote counts if results not available
+                candidates = election.get('candidates', [])
+                self.result_text.insert(tk.END, "Candidate                         | Votes\n")
+                self.result_text.insert(tk.END, "-"*50 + "\n")
+                if candidates:
+                    for c in candidates:
+                        name = c.get('name', 'Unnamed')
+                        self.result_text.insert(tk.END, f"{name:<33} | --\n")
+                else:
+                    self.result_text.insert(tk.END, "No candidates found.\n")
+        except Exception as e:
+            self.result_text.insert(tk.END, f"Error fetching results: {e}\n")
+        
         self.result_text.config(state="disabled")
 
     def clear_results_text(self):

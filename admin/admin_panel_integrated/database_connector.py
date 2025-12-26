@@ -27,7 +27,7 @@ class DatabaseConnector:
     def get_elections(self):
         """Retrieve all elections from server"""
         try:
-            response = requests.get(f"{self.flask_server_url}/api/elections", timeout=8)
+            response = requests.get(f"{self.flask_server_url}/elections", timeout=8)
             response.raise_for_status()
             return True, "Elections retrieved successfully", response.json()
         except requests.exceptions.RequestException as e:
@@ -36,7 +36,7 @@ class DatabaseConnector:
     def get_election_by_id(self, election_id):
         """Retrieve a specific election by ID from server"""
         try:
-            response = requests.get(f"{self.flask_server_url}/api/elections/{election_id}", timeout=8)
+            response = requests.get(f"{self.flask_server_url}/elections/{election_id}", timeout=8)
             response.raise_for_status()
             return True, "Election retrieved successfully", response.json()
         except requests.exceptions.RequestException as e:
@@ -46,7 +46,7 @@ class DatabaseConnector:
         """Create a new election on server"""
         try:
             response = requests.post(
-                f"{self.flask_server_url}/api/elections",
+                f"{self.flask_server_url}/elections",
                 json=election_data,
                 timeout=8
             )
@@ -61,7 +61,7 @@ class DatabaseConnector:
         """Delete an election by ID on server"""
         try:
             response = requests.delete(
-                f"{self.flask_server_url}/api/elections/{election_id}",
+                f"{self.flask_server_url}/elections/{election_id}",
                 timeout=8
             )
             response.raise_for_status()
@@ -72,7 +72,7 @@ class DatabaseConnector:
     def get_election_results(self, election_id):
         """Retrieve tallied results for an election from server"""
         try:
-            url = f"{self.flask_server_url}/api/elections/{election_id}/results"
+            url = f"{self.flask_server_url}/elections/{election_id}/results"
             response = requests.get(url, timeout=8)
             response.raise_for_status()
             return True, response.json()

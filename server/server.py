@@ -524,6 +524,50 @@ init_elections_table()
 
 # MVP Architecture Endpoints
 
+@app.route('/test-db', methods=['GET'])
+def test_database():
+    """Test database connection and return statistics"""
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+        
+        # Count records with error handling for missing tables
+        elections_count = 0
+        votes_count = 0
+        voters_count = 0
+        
+        try:
+            c.execute("SELECT COUNT(*) FROM elections")
+            elections_count = c.fetchone()[0]
+        except sqlite3.OperationalError:
+            pass  # Table doesn't exist yet
+            
+        try:
+            c.execute("SELECT COUNT(*) FROM votes")
+            votes_count = c.fetchone()[0]
+        except sqlite3.OperationalError:
+            pass  # Table doesn't exist yet
+            
+        try:
+            c.execute("SELECT COUNT(*) FROM voters")
+            voters_count = c.fetchone()[0]
+        except sqlite3.OperationalError:
+            pass  # Table doesn't exist yet
+        
+        conn.close()
+        
+        return jsonify({
+            "database_status": "Connected",
+            "elections": elections_count,
+            "votes": votes_count,
+            "voters": voters_count
+        })
+    except Exception as e:
+        print(f"[ERROR] /test-db endpoint error: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": str(e), "database_status": "Error"}), 500
+
 @app.route('/elections', methods=['GET'])
 def get_elections():
     """Get list of all elections

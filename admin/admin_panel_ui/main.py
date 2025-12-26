@@ -7,34 +7,78 @@ from datetime import datetime, timedelta
 from PIL import Image, ImageTk
 import time
 import os
+import sys
+import traceback
+import json
+from pathlib import Path
 
+# Try to import direct connectors first (integrated mode)
+try:
+    # Add parent directory to path for importing connectors
+    parent_dir = str(Path(__file__).parent.absolute())
+    if parent_dir not in sys.path:
+        sys.path.insert(0, parent_dir)
+    
+    from database_connector import DatabaseConnector
+    from blockchain_connector import BlockchainConnector
+    from election_manager import ElectionManager
+    print("✅ Direct connectors imported successfully (Integrated mode)")
+    INTEGRATED_MODE = True
+except ImportError as e:
+    print(f"⚠️ Direct connectors not available: {e}")
+    print("   Falling back to API client mode...")
+    INTEGRATED_MODE = False
+
+# Try API client as fallback
 try:
     from utils.api_client import APIClient
     print("✅ API client imported successfully")
 except ImportError as e:
-    print(f"❌ Import error: {e}")
-    exit(1)
+    if not INTEGRATED_MODE:
+        print(f"❌ Both connectors failed: {e}")
+        exit(1)
 
 class AdminPanel:
     def __init__(self):
         try:
             print("🚀 Initializing BallotGuard Admin Panel...")
-            self.api = APIClient()
+            
+            # Initialize connectors based on available mode
+            if INTEGRATED_MODE:
+                print("📡 Using integrated mode (direct database/blockchain)")
+                self.database = DatabaseConnector()
+                self.blockchain = BlockchainConnector()
+                self.election_manager = ElectionManager(self.database, self.blockchain)
+                self.api = None
+            else:
+                print("🌐 Using API client mode")
+                self.api = APIClient()
+                self.database = None
+                self.blockchain = None
+                self.election_manager = None
+            
             self.current_election_id = None
             self.party_symbols = {}  # Will be loaded from server
             
             # Load party symbols from server
             try:
-                success, symbols = self.api.get_party_symbols()
-                if success:
-                    self.party_symbols = symbols
-                    print(f"✅ Loaded party symbols: {list(symbols.keys())}")
-                else:
-                    print("⚠️ Could not load party symbols from server, using defaults")
+                if INTEGRATED_MODE:
+                    # For integrated mode, use defaults
                     self.party_symbols = {
                         "BJP": "🌸", "INC": "✋", "AAP": "🧹", 
                         "CPI": "🌾", "TMC": "🌿", "Independent": "⭐", "": "🗳️"
                     }
+                else:
+                    success, symbols = self.api.get_party_symbols()
+                    if success:
+                        self.party_symbols = symbols
+                        print(f"✅ Loaded party symbols: {list(symbols.keys())}")
+                    else:
+                        print("⚠️ Could not load party symbols from server, using defaults")
+                        self.party_symbols = {
+                            "BJP": "🌸", "INC": "✋", "AAP": "🧹", 
+                            "CPI": "🌾", "TMC": "🌿", "Independent": "⭐", "": "🗳️"
+                        }
             except Exception as e:
                 print(f"⚠️ Error loading symbols: {e}, using defaults")
                 self.party_symbols = {
@@ -247,34 +291,28 @@ class AdminPanel:
             # Create tabs
             self.create_dashboard_tab(notebook)
             self.create_election_creation_tab(notebook)
+            if INTEGRATED_MODE:
+                self.create_election_management_tab(notebook)
             self.create_security_monitor_tab(notebook)
             
             print("✅ UI setup completed successfully")
             
         except Exception as e:
             print(f"❌ Error in setup_ui: {e}")
-            import traceback
             traceback.print_exc()
     
     def check_server_connection(self):
         """Check if the server is reachable and update the status label"""
         try:
-            # Try to get system health or elections list as a connection test
-            success, response = self.api.get_system_health()
-            if success:
+            if INTEGRATED_MODE:
+                # Connection already tested during DatabaseConnector init
                 self.db_status_label.config(
-                    text="● SERVER CONNECTED",
+                    text="● DATABASE CONNECTED (Integrated)",
                     foreground=self.SUCCESS_COLOR
                 )
             else:
-                self.db_status_label.config(
-                    text="● SERVER UNREACHABLE",
-                    foreground=self.DANGER_COLOR
-                )
-        except Exception as e:
-            # If health endpoint doesn't exist, try elections as fallback
-            try:
-                success, response = self.api.get_elections()
+                # Try to get system health or elections list as a connection test
+                success, response = self.api.get_system_health()
                 if success:
                     self.db_status_label.config(
                         text="● SERVER CONNECTED",
@@ -285,11 +323,32 @@ class AdminPanel:
                         text="● SERVER UNREACHABLE",
                         foreground=self.DANGER_COLOR
                     )
-            except Exception:
+        except Exception as e:
+            if INTEGRATED_MODE:
+                # Integrated mode: the connector already tested connection; mark as error here
                 self.db_status_label.config(
-                    text="● SERVER OFFLINE",
+                    text="● DATABASE ERROR",
                     foreground=self.DANGER_COLOR
                 )
+            else:
+                # If health endpoint doesn't exist, try elections as fallback
+                try:
+                    success, response = self.api.get_elections()
+                    if success:
+                        self.db_status_label.config(
+                            text="● SERVER CONNECTED",
+                            foreground=self.SUCCESS_COLOR
+                        )
+                    else:
+                        self.db_status_label.config(
+                            text="● SERVER UNREACHABLE",
+                            foreground=self.DANGER_COLOR
+                        )
+                except Exception:
+                    self.db_status_label.config(
+                        text="● SERVER OFFLINE",
+                        foreground=self.DANGER_COLOR
+                    )
     
     def create_dashboard_tab(self, notebook):
         """Dashboard tab"""
@@ -368,6 +427,93 @@ class AdminPanel:
             print("✅ Dashboard tab created")
         except Exception as e:
             print(f"❌ Error in dashboard: {e}")
+    
+    def create_election_management_tab(self, notebook):
+        """Election Management Tab - List, View, and Delete Elections (Integrated Mode Only)"""
+        try:
+            frame = TTKFrame(notebook)
+            frame.configure(style='TFrame')
+            notebook.add(frame, text="🗳️ Election Management")
+
+            Label(frame, text="Existing Elections:", 
+                  font=("Segoe UI Semibold", 14, 'bold'), 
+                  foreground=self.TEXT_PRIMARY,
+                  background=self.BG_PRIMARY).pack(anchor="w", pady=(0, 10), padx=20)
+
+            listbox_frame = TTKFrame(frame)
+            listbox_frame.pack(fill="both", expand=True, padx=20, pady=(0, 10))
+
+            self.elections_listbox = tk.Listbox(listbox_frame, height=15, width=100, 
+                                               font=("Courier", 10),
+                                               bg=self.BG_SECONDARY,
+                                               fg=self.TEXT_PRIMARY)
+            self.elections_listbox.pack(side="left", fill="both", expand=True, padx=(0, 10))
+
+            scrollbar = ttk.Scrollbar(listbox_frame, orient="vertical", command=self.elections_listbox.yview)
+            scrollbar.pack(side="right", fill="y")
+            self.elections_listbox.config(yscrollcommand=scrollbar.set)
+
+            controls_frame = TTKFrame(frame)
+            controls_frame.pack(fill="x", pady=10, padx=20)
+
+            Button(controls_frame, text="🔄 Refresh List", 
+                   command=self.refresh_elections_integrated, 
+                   style='Primary.TButton').pack(side="left", padx=5)
+            Button(controls_frame, text="🗑️ Delete Selected", 
+                   command=self.delete_election_integrated, 
+                   style='Danger.TButton').pack(side="left", padx=5)
+            Button(controls_frame, text="➕ Add New Election", 
+                   command=lambda: self.notebook.select(1), 
+                   style='Success.TButton').pack(side="left", padx=5)
+
+            # Load initial elections
+            self.refresh_elections_integrated()
+            
+            print("✅ Election Management tab created")
+        except Exception as e:
+            print(f"❌ Error in election management tab: {e}")
+            traceback.print_exc()
+
+    def refresh_elections_integrated(self):
+        """Refresh election list (Integrated mode)"""
+        try:
+            self.elections_listbox.delete(0, tk.END)
+            success, message, elections = self.database.get_elections()
+            if success and elections:
+                for election in elections:
+                    display_text = f"ID:{election.get('id', 'N/A'):<4} | {election.get('title', 'Untitled'):<50} | STATUS: {election.get('status', 'Unknown'):<10}"
+                    self.elections_listbox.insert(tk.END, display_text)
+            elif success and not elections:
+                self.elections_listbox.insert(tk.END, "No elections found.")
+            else:
+                self.elections_listbox.insert(tk.END, f"Error: {message}")
+        except Exception as e:
+            print(f"❌ Error refreshing elections: {e}")
+            self.elections_listbox.insert(tk.END, f"Error: {str(e)}")
+
+    def delete_election_integrated(self):
+        """Delete selected election (Integrated mode)"""
+        try:
+            selected_index = self.elections_listbox.curselection()
+            if not selected_index:
+                messagebox.showwarning("Selection Required", "Please select an election to delete.")
+                return
+
+            list_text = self.elections_listbox.get(selected_index[0])
+            election_id_str = list_text.split('|')[0].replace('ID:', '').strip()
+            election_id = int(election_id_str)
+            title = list_text.split('|')[1].strip()
+
+            if messagebox.askyesno("Confirm Deletion", 
+                                 f"Are you sure you want to delete election '{title}' (ID: {election_id})? This action is permanent."):
+                success, msg = self.election_manager.delete_election(election_id)
+                if success:
+                    messagebox.showinfo("Success", msg)
+                    self.refresh_elections_integrated()
+                else:
+                    messagebox.showerror("Error", msg)
+        except Exception as e:
+            messagebox.showerror("Error", f"Could not process deletion: {str(e)}")
     
     def create_election_creation_tab(self, notebook):
         """Create Election Tab - ALL CONTENT VISIBLE"""
@@ -712,6 +858,34 @@ class AdminPanel:
                                        font=("Segoe UI", 14, "bold"), 
                                        foreground=self.SUCCESS_COLOR)
             self.security_status.pack()
+            
+            # Add blockchain monitoring if in integrated mode
+            if INTEGRATED_MODE:
+                blockchain_frame = Labelframe(frame, text="🛡️ Blockchain Integrity", padding=12)
+                blockchain_frame.pack(fill="x", padx=15, pady=(0, 12))
+                
+                inner_blockchain = tk.Frame(blockchain_frame, bg=self.BG_SECONDARY)
+                inner_blockchain.pack(fill="both", expand=False)
+                
+                self.chain_info_text = scrolledtext.ScrolledText(inner_blockchain, height=6, 
+                                                                bg=self.BG_PRIMARY, 
+                                                                fg=self.TEXT_PRIMARY,
+                                                                font=("Consolas", 9))
+                self.chain_info_text.pack(fill="both", expand=True, padx=5, pady=5)
+                
+                blockchain_buttons = tk.Frame(blockchain_frame, bg=self.BG_SECONDARY)
+                blockchain_buttons.pack(fill="x", padx=0, pady=(8, 0))
+                
+                Button(blockchain_buttons, text="🔒 Verify Chain", 
+                       command=self.verify_chain_integrated, 
+                       style='Primary.TButton').pack(side="left", padx=5)
+                Button(blockchain_buttons, text="⚠️ Simulate Admin Modify", 
+                       command=self.simulate_admin_modification_integrated, 
+                       style='Danger.TButton').pack(side="left", padx=5)
+                
+                # Initial verification
+                self.verify_chain_integrated()
+            
             # Voter approvals area
             voters_frame = Labelframe(frame, text="Voter Approvals (Per-Election)", padding=12)
             voters_frame.pack(fill="x", padx=15, pady=(0, 12))
@@ -768,6 +942,48 @@ class AdminPanel:
             print("✅ Security tab created")
         except Exception as e:
             print(f"❌ Error: {e}")
+    
+    def verify_chain_integrated(self):
+        """Verify blockchain integrity (Integrated mode)"""
+        try:
+            status = self.blockchain.get_chain_status()
+            info = self.blockchain.get_vote_verification_info()
+            
+            self.chain_info_text.config(state="normal")
+            self.chain_info_text.delete("1.0", "end")
+            self.chain_info_text.insert("end", f"Chain status: {status.get('status')} (broken={status.get('broken')})\n")
+            self.chain_info_text.insert("end", f"Total blocks: {status.get('total_blocks')}\n\n")
+            self.chain_info_text.insert("end", "Verification:\n")
+            for k, v in info.items():
+                self.chain_info_text.insert("end", f"{k}: {v}\n")
+            self.chain_info_text.config(state="disabled")
+            
+            if status.get("broken"):
+                self.log_security("⚠️ BLOCKCHAIN COMPROMISED - Chain integrity violated!")
+            else:
+                self.log_security("✅ Blockchain verified - All blocks intact")
+        except Exception as e:
+            self.chain_info_text.config(state="normal")
+            self.chain_info_text.delete("1.0", "end")
+            self.chain_info_text.insert("end", f"Error verifying chain: {e}")
+            self.chain_info_text.config(state="disabled")
+            self.log_security(f"❌ Error during chain verification: {e}")
+
+    def simulate_admin_modification_integrated(self):
+        """Simulate admin vote modification (Integrated mode)"""
+        try:
+            if not messagebox.askyesno("Simulate", 
+                "This will simulate an admin attempting to modify votes and will BREAK the blockchain. Proceed?"):
+                return
+
+            res = self.blockchain.break_chain_on_admin_modification("MANUAL_VOTE_MODIFICATION")
+            self.verify_chain_integrated()
+            messagebox.showwarning("Security Breach", 
+                "Blockchain integrity violated! Chain marked as BROKEN.\n" + str(res))
+            self.log_security("🚨 SECURITY INCIDENT: Admin modification attempted - Blockchain broken!")
+        except Exception as e:
+            messagebox.showerror("Error", f"Could not simulate modification: {e}")
+            self.log_security(f"❌ Error during simulation: {e}")
     
     def refresh_elections(self):
         """Refresh"""

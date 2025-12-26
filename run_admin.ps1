@@ -15,5 +15,5 @@ if (Test-Path $venv) {
     Write-Host "No .venv found, continuing with system Python"
 }
 
-Write-Host "Starting Admin UI..."
+Write-Host "Starting Admin UI (Integrated)..."
 python .\admin\admin_panel_ui\main.py

@@ -5,7 +5,7 @@ import time
 import requests
 
 class BlockchainConnector:
-    def __init__(self, flask_server_url="http://localhost:5000"):
+    def __init__(self, flask_server_url="http://127.0.0.1:8443"):
         self.flask_server_url = flask_server_url
         self.chain_broken = False
         
