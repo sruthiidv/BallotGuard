@@ -12,3 +12,4 @@ face-recognition
 cmake
 dlib
 ttkbootstrap>=1.10.1
+matpllotlib>=3.7.2
