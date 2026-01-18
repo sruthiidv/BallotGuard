@@ -1,0 +1,32 @@
+{
+  "scale_test": [
+    {
+      "voter_count": 100,
+      "plaintext_ms": 0.0025333332208295665,
+      "homomorphic_ms": 61.94116666726283,
+      "encryption_ms": 19994.690600000467,
+      "total_encrypted_ms": 20056.63176666773,
+      "overhead_percent": 791709083.8435678,
+      "trials": 3
+    },
+    {
+      "voter_count": 500,
+      "plaintext_ms": 0.0029000002541579306,
+      "homomorphic_ms": 87.48810000057954,
+      "encryption_ms": 100060.16119999913,
+      "total_encrypted_ms": 100147.64929999971,
+      "overhead_percent": 3453366814.5859942,
+      "trials": 3
+    },
+    {
+      "voter_count": 1000,
+      "plaintext_ms": 0.004600000465870835,
+      "homomorphic_ms": 119.13370000002033,
+      "encryption_ms": 215358.83829999875,
+      "total_encrypted_ms": 215477.9719999988,
+      "overhead_percent": 4684303164.721654,
+      "trials": 3
+    }
+  ],
+  "summary": {}
+}
