@@ -1,124 +1,143 @@
-🧩 BallotGuard — Cryptography & Blockchain Module
-👤 Author: Person 2
-🧭 Modules:
+BallotGuard: Face-Authenticated Blockchain-Inspired Secure Voting System
 
-client_app/crypto/
+BallotGuard is a research prototype of a cryptographically secure electronic voting system designed for controlled, small-scale environments such as university student elections.
 
-server_backend/crypto/
+It combines:
 
-server_backend/blockchain/
+\- Client-side Paillier homomorphic encryption (3072-bit) for privacy-preserving vote tallying
 
-🔐 Overview
+\- RSA-PSS digital signatures (3072-bit) for receipt authenticity and token validation
 
-This module implements all cryptographic and blockchain operations for secure, verifiable, and privacy-preserving e-voting in BallotGuard.
-It ensures that votes are encrypted, authenticated, tamper-proof, and tallied securely.
+\- One-time voting tokens (OVTs) with HMAC-SHA256 commitments for single-use enforcement and identity-vote decoupling
 
-⚙️ Components
-1. client_app/crypto/paillier_crypto.py
+\- Lightweight SHA-256 hash-chained ledger for tamper-evident vote storage
 
-Uses Paillier encryption to secure each vote.
+\- Facial recognition with blink-based liveness detection for biometric authentication
 
-Supports multi-candidate voting (encrypts each candidate’s vote).
+Performance (measured on Intel i7-12700H, 16 GB RAM):
 
-Uses server’s public Paillier key (PK_paillier) for encryption.
+~5-second end-to-end vote submission per voter
 
-Voter never has access to private keys.
+Tallying 1000 votes in under 30 seconds
 
-2. server_backend/crypto/paillier_crypto.py
+Important: This is a research/academic prototype — not suitable for real or binding elections. It has known limitations (see below) and must not be used in production without independent security audits, major hardening, and regulatory compliance.
 
-Generates and stores Paillier keypair:
+Features
 
-PK_paillier (public) → shared with clients
+Privacy-preserving tallying via Paillier homomorphic encryption
 
-SK_paillier (private) → server-only, used for final decryption
+Biometric authentication: face recognition (dlib ResNet-34) + blink liveness (EAR-based) + 3-failure lockout
 
-Performs homomorphic tallying of encrypted votes.
+Identity-vote decoupling using OVTs + HMAC commitments
 
-3. server_backend/crypto/ovt_crypto.py
+Tamper-evident append-only ledger with RSA-PSS signed blocks
 
-Implements RSA-based OVT (One-time Voting Token) signing and verification.
+Signed receipts for voter submission proof
 
-Server: signs tokens using SK_server_sign.
+Security measures: AES-256-GCM encrypted biometrics, HTTPS/TLS, rate limiting, audit logging
 
-Client: verifies tokens using PK_server_sign.
+STRIDE threat analysis: resists ballot stuffing, replay, manipulation, and insider risks
 
-Prevents multiple votes from a single voter.
+Full client-server implementation: Tkinter GUI (voter), Flask backend, SQLite storage, admin/audit dashboards
 
-4. server_backend/crypto/ledger_crypto.py
+Architecture Overview
 
-Signs blockchain block headers with RSA (SK_ledger_sign).
+Client — Tkinter + CustomTkinter GUI, OpenCV + dlib for face/liveness, client-side Paillier encryption
 
-Anyone can verify using PK_ledger_sign.
+Backend — Flask REST API (21 endpoints), OVT issuance/validation, vote ingestion, ledger management
 
-Protects the integrity of blockchain blocks and checkpoint exports.
+Ledger — Custom SHA-256 hash chain in SQLite (blocks signed with RSA-PSS)
 
-5. server_backend/crypto/hash_utils.py
+Admin/Audit — ttkbootstrap dashboard for election control + read-only audit interface
 
-Provides SHA-256 hashing functions for:
+Workflow:
 
-Vote hashes
+Voter Enrollment → Face Authentication → OVT Issuance → Vote Encryption → Ledger Append → Homomorphic Tallying → Audit Verification
 
-Block linking
+Limitations & Security Caveats
 
-Merkle tree generation
+Research prototype only — no formal third-party audit
 
-6. server_backend/blockchain/blockchain.py
+Blink liveness is client-side → vulnerable to advanced deepfakes/replays
 
-Implements a lightweight append-only blockchain ledger:
+Admin dashboard lacks authentication → serious risk if server is exposed
 
-Each block stores encrypted vote hashes.
+Voter identity linked to encrypted face encodings in DB
 
-Blocks linked by SHA-256 previous hashes.
+Single-server design → no high availability or large-scale support
 
-Each block signed with RSA ledger key for authenticity.
+No full end-to-end verifiability (proof of inclusion in tally)
 
-Includes Merkle tree for verifying individual vote inclusion.
+No coercion resistance in unsupervised/remote scenarios
 
-🔑 Key Summary
-Key	Location	Purpose
-PK_paillier	Client + Server	Encrypt votes
-SK_paillier	Server only	Decrypt tallies
+Requirements
 
-# BallotGuard Voting System
+Python 3.11+
 
-## Overview
-BallotGuard is a modular digital voting system with a modern CustomTkinter UI, face verification, and cryptographic vote handling. This project is structured for easy development and extension.
+Dependencies (requirements.txt):
 
-## Prerequisites
-- Python 3.10+
-- All dependencies in `requirements.txt`
+flask, flask-cors, flask-limiter
 
-## Installation
-1. Clone the repository:
-   ```sh
-   git clone <your-repo-url>
-   cd BallotGuard
-   ```
-2. Install dependencies:
-   ```sh
-   pip install -r requirements.txt
-   ```
+pycryptodome, phe (Paillier)
 
-## Running the Application
-1. Start the server (in a new terminal):
-   ```sh
-   python simple_server.py
-   ```
-2. Start the client app:
-   ```sh
-   python client_app/voting/app.py
-   ```
+opencv-python, dlib, numpy
 
-## Usage
-- On launch, select your role (Voter, Admin, Auditor).
-- Voters can register, verify face, and vote in open elections.
-- Admin and Auditor features are placeholders for future development.
+customtkinter, ttkbootstrap, pillow
 
-## Notes
-- No `setup.py` is required unless you want to distribute as a pip package. For running as an app, just use the above commands.
-- All local/temporary files, caches, and environments are ignored via `.gitignore`.
-- Face verification is currently mocked on the server for demo purposes.
+requests
 
----
+Installation & Quick Start
 
-**For development or deployment, just use `python client_app/voting/app.py` to launch the UI.**
+1\. Clone the repo
+
+git clone https://github.com/YOUR-USERNAME/BallotGuard.git
+
+cd BallotGuard
+
+2\. Install dependencies
+
+pip install -r requirements.txt
+
+3\. (Optional) Install dlib with CUDA for faster face processing
+
+(Follow platform-specific dlib installation guide)
+
+4\. Start the backend
+
+python backend/app.py
+
+5\. Launch the voter client
+
+python client/voter\_client.py
+
+6\. Access admin/audit interface
+
+Open admin/admin\_dashboard.html or run the admin script
+
+See docs/SETUP.md for database initialization, election creation, and full configuration.
+
+Repository Structure
+
+BallotGuard/
+
+├── backend/ # Flask server, API, ledger logic
+
+├── client/ # Tkinter voter GUI
+
+├── admin/ # Admin & audit dashboard
+
+├── docs/ # Setup guide, diagrams, paper draft
+
+├── database/ # SQLite schema & examples
+
+├── requirements.txt
+
+└── README.md
+
+License
+
+MIT License — see LICENSE for details.
+
+Disclaimer
+
+This software is for academic research and experimentation only. It is not secure enough for real elections. Use at your own risk.
